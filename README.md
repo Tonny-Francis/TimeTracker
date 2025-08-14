@@ -33,17 +33,46 @@ swift build -c release
 
 A aplicação aparecerá na barra de menu do macOS com o tempo atual da sessão ou "⏸️ Parado" quando não estiver trabalhando.
 
-## Como usar
+## Como Usar
 
-1. **Iniciar trabalho**: Clique no ícone na barra de menu e selecione "Iniciar Trabalho"
-2. **Pausar trabalho**: Durante uma sessão ativa, selecione "Pausar Trabalho" (para almoço, pausas, etc.)
-3. **Retomar trabalho**: Quando em pausa, selecione "Retomar Trabalho"
-4. **Parar trabalho**: Clique no ícone e selecione "Parar Trabalho"
-5. **Ver estatísticas**: As estatísticas aparecem automaticamente no menu:
-   - Hoje: tempo total e horas extras do dia
-   - Semana: tempo total e horas extras da semana
-   - Mês: tempo total e horas extras do mês
-6. **Usar horas extras**: Quando há saldo disponível, aparece a opção "Usar 1h Extra"
+### Opção 1: Script de Gerenciamento (Recomendado)
+
+Use o script `timetracker.sh` para gerenciar a aplicação:
+
+```bash
+# Iniciar a aplicação em background
+./timetracker.sh start
+
+# Verificar status
+./timetracker.sh status
+
+# Parar a aplicação
+./timetracker.sh stop
+
+# Reiniciar a aplicação
+./timetracker.sh restart
+```
+
+### Opção 2: Execução Manual
+
+1. **Compilar o projeto:**
+   ```bash
+   swift build -c release
+   ```
+
+2. **Executar a aplicação:**
+   ```bash
+   .build/release/TimeTracker
+   ```
+   ⚠️ **Nota:** Com este método, a aplicação para se você fechar o terminal ou pressionar Ctrl+C.
+
+### Usando a Aplicação
+
+- 📱 A aplicação aparece como um ícone na barra de menu do macOS
+- 🖱️ Clique no ícone para acessar o menu com todas as opções
+- ⏹️ Ícone quadrado = parado
+- ▶️ Ícone play = trabalhando  
+- ⏸️ Ícone pausa = pausado
 
 ### Estados da Barra de Menu
 

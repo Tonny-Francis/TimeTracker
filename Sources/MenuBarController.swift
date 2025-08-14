@@ -54,15 +54,22 @@ class MenuBarController: NSObject, ObservableObject {
     
     private func setupTimer() {
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            self.updateStatusBarTitle()
+            DispatchQueue.main.async {
+                self.updateStatusBarTitle()
+                // Se estiver trabalhando, recriar o menu completamente para garantir atualização
+                if self.timeTracker.isWorking {
+                    self.updateMenu()
+                }
+            }
         }
+        RunLoop.main.add(timer!, forMode: .common)
     }
     
     private func setupBindings() {
         timeTracker.objectWillChange
             .sink { [weak self] in
                 DispatchQueue.main.async {
-                    self?.updateMenu()
+                    self?.updateStatusBarTitle()
                 }
             }
             .store(in: &cancellables)
@@ -94,11 +101,14 @@ class MenuBarController: NSObject, ObservableObject {
         }
     }
     
-    private func updateMenu() {
-        let menu = NSMenu()
+    private func updateMenuContent() {
+        guard let menu = statusBarItem.menu, menu.items.count > 0 else { return }
         
-        // Status atual com tempo detalhado
-        let statusItem = NSMenuItem()
+        // Debug: print para verificar se está sendo chamado
+        // print("Atualizando menu - isWorking: \(timeTracker.isWorking)")
+        
+        // Atualizar o primeiro item (status) - sempre no índice 0
+        let statusItem = menu.items[0]
         if timeTracker.isWorking {
             if timeTracker.isPaused {
                 let workTime = formatDuration(timeTracker.currentSessionElapsed)
@@ -111,122 +121,160 @@ class MenuBarController: NSObject, ObservableObject {
         } else {
             statusItem.title = "⏹️ Parado"
         }
-        statusItem.isEnabled = false
-        menu.addItem(statusItem)
         
-        menu.addItem(NSMenuItem.separator())
-        
-        // Botões de controle
-        if timeTracker.isWorking {
-            if timeTracker.isPaused {
-                let resumeItem = NSMenuItem(
-                    title: "Retomar Trabalho",
-                    action: #selector(resumeWork),
-                    keyEquivalent: ""
-                )
-                resumeItem.target = self
-                menu.addItem(resumeItem)
+        // Atualizar outros itens do menu
+        for item in menu.items {
+            if item.title.hasPrefix("Hoje:") {
+                let todayStats = timeTracker.getTodayStats()
+                item.title = "Hoje: \(formatDuration(todayStats.totalTime)) | Extras: \(formatDuration(todayStats.overtime))"
+            } else if item.title.hasPrefix("Semana:") {
+                let weekStats = timeTracker.getWeekStats()
+                item.title = "Semana: \(formatDuration(weekStats.totalTime)) | Extras: \(formatDuration(weekStats.overtime))"
+            } else if item.title.hasPrefix("Mês:") {
+                let monthStats = timeTracker.getMonthStats()
+                item.title = "Mês: \(formatDuration(monthStats.totalTime)) | Extras: \(formatDuration(monthStats.overtime))"
+            } else if item.title.contains("Saldo:") {
+                item.title = "Usar 1h Extra (Saldo: \(formatDuration(timeTracker.getTotalOvertimeBalance())))"
+            }
+        }
+    }
+    
+    private func updateMenu() {
+        DispatchQueue.main.async {
+            let menu = NSMenu()
+            
+            // Status atual com tempo detalhado - sempre atualizado
+            let statusItem = NSMenuItem()
+            if self.timeTracker.isWorking {
+                if self.timeTracker.isPaused {
+                    let workTime = self.formatDuration(self.timeTracker.currentSessionElapsed)
+                    let pauseTime = self.formatDuration(self.timeTracker.currentPauseElapsed)
+                    statusItem.title = "⏸️ Em Pausa | Trabalhado: \(workTime) | Pausa: \(pauseTime)"
+                } else {
+                    let workTime = self.formatDuration(self.timeTracker.currentSessionElapsed)
+                    statusItem.title = "▶️ Trabalhando | Tempo: \(workTime)"
+                }
             } else {
-                let pauseItem = NSMenuItem(
-                    title: "Pausar Trabalho",
-                    action: #selector(pauseWork),
+                statusItem.title = "⏹️ Parado"
+            }
+            statusItem.isEnabled = false
+            menu.addItem(statusItem)
+            
+            menu.addItem(NSMenuItem.separator())
+            
+            // Botões de controle
+            if self.timeTracker.isWorking {
+                if self.timeTracker.isPaused {
+                    let resumeItem = NSMenuItem(
+                        title: "Retomar Trabalho",
+                        action: #selector(self.resumeWork),
+                        keyEquivalent: ""
+                    )
+                    resumeItem.target = self
+                    menu.addItem(resumeItem)
+                } else {
+                    let pauseItem = NSMenuItem(
+                        title: "Pausar Trabalho",
+                        action: #selector(self.pauseWork),
+                        keyEquivalent: ""
+                    )
+                    pauseItem.target = self
+                    menu.addItem(pauseItem)
+                }
+                
+                let stopItem = NSMenuItem(
+                    title: "Parar Trabalho",
+                    action: #selector(self.stopWork),
                     keyEquivalent: ""
                 )
-                pauseItem.target = self
-                menu.addItem(pauseItem)
+                stopItem.target = self
+                menu.addItem(stopItem)
+            } else {
+                let startItem = NSMenuItem(
+                    title: "Iniciar Trabalho",
+                    action: #selector(self.startWork),
+                    keyEquivalent: ""
+                )
+                startItem.target = self
+                menu.addItem(startItem)
             }
             
-            let stopItem = NSMenuItem(
-                title: "Parar Trabalho",
-                action: #selector(stopWork),
-                keyEquivalent: ""
-            )
-            stopItem.target = self
-            menu.addItem(stopItem)
-        } else {
-            let startItem = NSMenuItem(
-                title: "Iniciar Trabalho",
-                action: #selector(startWork),
-                keyEquivalent: ""
-            )
-            startItem.target = self
-            menu.addItem(startItem)
-        }
-        
-        menu.addItem(NSMenuItem.separator())
-        
-        // Estatísticas do dia
-        let todayStats = timeTracker.getTodayStats()
-        let todayItem = NSMenuItem()
-        todayItem.title = "Hoje: \(formatDuration(todayStats.totalTime)) | Extras: \(formatDuration(todayStats.overtime))"
-        todayItem.isEnabled = false
-        menu.addItem(todayItem)
-        
-        // Estatísticas da semana
-        let weekStats = timeTracker.getWeekStats()
-        let weekItem = NSMenuItem()
-        weekItem.title = "Semana: \(formatDuration(weekStats.totalTime)) | Extras: \(formatDuration(weekStats.overtime))"
-        weekItem.isEnabled = false
-        menu.addItem(weekItem)
-        
-        // Estatísticas do mês
-        let monthStats = timeTracker.getMonthStats()
-        let monthItem = NSMenuItem()
-        monthItem.title = "Mês: \(formatDuration(monthStats.totalTime)) | Extras: \(formatDuration(monthStats.overtime))"
-        monthItem.isEnabled = false
-        menu.addItem(monthItem)
-        
-        menu.addItem(NSMenuItem.separator())
-        
-        // Importar dados históricos (apenas se ainda não foi feito)
-        if !timeTracker.hasImportedHistoricalOvertime() {
-            let importItem = NSMenuItem(
-                title: "📥 Importar Horas Extras Históricas",
-                action: #selector(importHistoricalData),
-                keyEquivalent: ""
-            )
-            importItem.target = self
-            menu.addItem(importItem)
+            menu.addItem(NSMenuItem.separator())
+            
+            // Estatísticas do dia
+            let todayStats = self.timeTracker.getTodayStats()
+            let todayItem = NSMenuItem()
+            todayItem.title = "Hoje: \(self.formatDuration(todayStats.totalTime)) | Extras: \(self.formatDuration(todayStats.overtime))"
+            todayItem.isEnabled = false
+            menu.addItem(todayItem)
+            
+            // Estatísticas da semana
+            let weekStats = self.timeTracker.getWeekStats()
+            let weekItem = NSMenuItem()
+            weekItem.title = "Semana: \(self.formatDuration(weekStats.totalTime)) | Extras: \(self.formatDuration(weekStats.overtime))"
+            weekItem.isEnabled = false
+            menu.addItem(weekItem)
+            
+            // Estatísticas do mês
+            let monthStats = self.timeTracker.getMonthStats()
+            let monthItem = NSMenuItem()
+            monthItem.title = "Mês: \(self.formatDuration(monthStats.totalTime)) | Extras: \(self.formatDuration(monthStats.overtime))"
+            monthItem.isEnabled = false
+            menu.addItem(monthItem)
             
             menu.addItem(NSMenuItem.separator())
-        }
-        
-        // Usar horas extras
-        if timeTracker.getTotalOvertimeBalance() > 0 {
-            let useOvertimeItem = NSMenuItem(
-                title: "Usar 1h Extra (Saldo: \(formatDuration(timeTracker.getTotalOvertimeBalance())))",
-                action: #selector(useOvertime),
+            
+            // Importar dados históricos (apenas se ainda não foi feito)
+            if !self.timeTracker.hasImportedHistoricalOvertime() {
+                let importItem = NSMenuItem(
+                    title: "📥 Importar Horas Extras Históricas",
+                    action: #selector(self.importHistoricalData),
+                    keyEquivalent: ""
+                )
+                importItem.target = self
+                menu.addItem(importItem)
+                
+                menu.addItem(NSMenuItem.separator())
+            }
+            
+            // Usar horas extras
+            if self.timeTracker.getTotalOvertimeBalance() > 0 {
+                let useOvertimeItem = NSMenuItem(
+                    title: "Usar 1h Extra (Saldo: \(self.formatDuration(self.timeTracker.getTotalOvertimeBalance())))",
+                    action: #selector(self.useOvertime),
+                    keyEquivalent: ""
+                )
+                useOvertimeItem.target = self
+                menu.addItem(useOvertimeItem)
+                
+                menu.addItem(NSMenuItem.separator())
+            }
+            
+            // Sair
+            let quitItem = NSMenuItem(
+                title: "Sair",
+                action: #selector(self.quit),
+                keyEquivalent: "q"
+            )
+            quitItem.target = self
+            menu.addItem(quitItem)
+            
+            // Opção de reset (apenas para correção)
+            let resetItem = NSMenuItem(
+                title: "🔄 Reset Dados",
+                action: #selector(self.resetData),
                 keyEquivalent: ""
             )
-            useOvertimeItem.target = self
-            menu.addItem(useOvertimeItem)
+            resetItem.target = self
+            menu.addItem(resetItem)
             
-            menu.addItem(NSMenuItem.separator())
+            self.statusBarItem.menu = menu
         }
-        
-        // Sair
-        let quitItem = NSMenuItem(
-            title: "Sair",
-            action: #selector(quit),
-            keyEquivalent: "q"
-        )
-        quitItem.target = self
-        menu.addItem(quitItem)
-        
-        // Opção de reset (apenas para correção)
-        let resetItem = NSMenuItem(
-            title: "🔄 Reset Dados",
-            action: #selector(resetData),
-            keyEquivalent: ""
-        )
-        resetItem.target = self
-        menu.addItem(resetItem)
-        
-        statusBarItem.menu = menu
     }
     
     @objc private func statusBarButtonClicked() {
-        // O menu será mostrado automaticamente
+        // Atualizar o menu no momento do clique para garantir dados frescos
+        updateMenu()
     }
     
     @objc private func startWork() {

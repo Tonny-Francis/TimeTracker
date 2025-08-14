@@ -26,10 +26,26 @@ class TimeTracker: ObservableObject {
     
     private let standardWorkHours: TimeInterval = 6 * 3600 // 6 horas em segundos
     private let userDefaults = UserDefaults.standard
+    private var updateTimer: Timer?
     
     private init() {
         // Verificar se há uma sessão em andamento
         checkForActiveSession()
+        setupUpdateTimer()
+    }
+    
+    private func setupUpdateTimer() {
+        // Timer para atualizar a interface quando estiver trabalhando
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            if self.isWorking {
+                DispatchQueue.main.async {
+                    // Força uma atualização da interface
+                    self.objectWillChange.send()
+                }
+            }
+        }
+        RunLoop.main.add(updateTimer!, forMode: .common)
     }
     
     // MARK: - Data Persistence
@@ -339,5 +355,9 @@ class TimeTracker: ObservableObject {
         totalPauseTime = 0
         
         objectWillChange.send()
+    }
+    
+    deinit {
+        updateTimer?.invalidate()
     }
 }
