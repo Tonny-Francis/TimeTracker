@@ -252,15 +252,6 @@ class MenuBarController: ObservableObject {
         quitItem.target = self
         menu.addItem(quitItem)
         
-        // Opção de reset (apenas para correção)
-        let resetItem = NSMenuItem(
-            title: "🔄 Reset Dados",
-            action: #selector(self.resetData),
-            keyEquivalent: ""
-        )
-        resetItem.target = self
-        menu.addItem(resetItem)
-        
         self.statusBarItem.menu = menu
     }
     
@@ -357,6 +348,74 @@ class MenuBarController: ObservableObject {
         if alert.runModal() == .alertFirstButtonReturn {
             timeTracker.resetAllData()
             updateMenu()
+        }
+    }
+    
+    @objc func resetDataFromModal() {
+        // Modal único de confirmação simples
+        let alert = NSAlert()
+        alert.messageText = "⚠️ CUIDADO - ÁREA PERIGOSA"
+        alert.informativeText = """
+        🚨 ATENÇÃO: Esta ação irá apagar PERMANENTEMENTE:
+        
+        • Todo o histórico de trabalho
+        • Banco de horas acumulado
+        • Todas as configurações personalizadas
+        • Dados de sessões e pausas
+        
+        Esta ação NÃO PODE ser desfeita!
+        
+        Tem CERTEZA ABSOLUTA de que deseja continuar?
+        """
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "❌ NÃO, Cancelar")
+        alert.addButton(withTitle: "� SIM, Resetar Tudo")
+        
+        // Centralizar o alert
+        if let window = NSApplication.shared.mainWindow ?? NSApplication.shared.windows.first {
+            alert.beginSheetModal(for: window) { response in
+                if response == .alertSecondButtonReturn {
+                    // Executar reset diretamente
+                    self.timeTracker.resetAllData()
+                    self.updateMenu()
+                    
+                    // Mostrar confirmação de sucesso
+                    self.showResetSuccessAlert()
+                }
+            }
+        } else {
+            let response = alert.runModal()
+            if response == .alertSecondButtonReturn {
+                // Executar reset diretamente
+                timeTracker.resetAllData()
+                updateMenu()
+                
+                // Mostrar confirmação de sucesso
+                showResetSuccessAlert()
+            }
+        }
+    }
+    
+    private func showResetSuccessAlert() {
+        let successAlert = NSAlert()
+        successAlert.messageText = "✅ Reset Concluído"
+        successAlert.informativeText = "Todos os dados foram apagados com sucesso. O modal será reaberto com as configurações padrão."
+        successAlert.alertStyle = .informational
+        successAlert.addButton(withTitle: "OK")
+        
+        // Centralizar alert de sucesso
+        if let window = NSApplication.shared.mainWindow ?? NSApplication.shared.windows.first {
+            successAlert.beginSheetModal(for: window) { _ in
+                // Reabrir modal após pequeno delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    self.showConfigurationsModal()
+                }
+            }
+        } else {
+            successAlert.runModal()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                self.showConfigurationsModal()
+            }
         }
     }
     
@@ -558,7 +617,7 @@ class MenuBarController: ObservableObject {
         alert.addButton(withTitle: "💾 Salvar")
         alert.addButton(withTitle: "❌ Cancelar")
         
-        // Container principal com mais altura
+        // Container principal
         let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 380))
         
         // ===== SEÇÃO 1: JORNADA DE TRABALHO =====
@@ -658,37 +717,46 @@ class MenuBarController: ObservableObject {
             dayCheckboxes.append(checkbox)
         }
         
-        // ===== SEÇÃO 4: RESUMO ATUAL =====
+        // ===== SEÇÃO 4: ÁREA PERIGOSA =====
         // Título da seção
-        let currentSectionTitle = NSTextField(labelWithString: "📋 CONFIGURAÇÃO ATUAL")
-        currentSectionTitle.font = NSFont.boldSystemFont(ofSize: 13)
-        currentSectionTitle.frame = NSRect(x: 20, y: 130, width: 200, height: 20)
-        containerView.addSubview(currentSectionTitle)
+        let dangerSectionTitle = NSTextField(labelWithString: "⚠️ ÁREA PERIGOSA")
+        dangerSectionTitle.font = NSFont.boldSystemFont(ofSize: 13)
+        dangerSectionTitle.textColor = .systemRed
+        dangerSectionTitle.frame = NSRect(x: 20, y: 130, width: 200, height: 20)
+        containerView.addSubview(dangerSectionTitle)
         
-        // Linha separadora
-        let currentSeparator = NSBox()
-        currentSeparator.boxType = .separator
-        currentSeparator.frame = NSRect(x: 20, y: 125, width: 440, height: 1)
-        containerView.addSubview(currentSeparator)
+        // Linha separadora vermelha
+        let dangerSeparator = NSBox()
+        dangerSeparator.boxType = .separator
+        dangerSeparator.fillColor = .systemRed
+        dangerSeparator.frame = NSRect(x: 20, y: 125, width: 440, height: 1)
+        containerView.addSubview(dangerSeparator)
         
-        // Container para o resumo com fundo diferenciado
-        let summaryContainer = NSView(frame: NSRect(x: 30, y: 30, width: 420, height: 90))
-        summaryContainer.wantsLayer = true
-        summaryContainer.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        summaryContainer.layer?.cornerRadius = 8
-        containerView.addSubview(summaryContainer)
+        // Container para área perigosa com fundo vermelho claro
+        let dangerContainer = NSView(frame: NSRect(x: 30, y: 40, width: 420, height: 80))
+        dangerContainer.wantsLayer = true
+        dangerContainer.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.1).cgColor
+        dangerContainer.layer?.cornerRadius = 8
+        dangerContainer.layer?.borderWidth = 1
+        dangerContainer.layer?.borderColor = NSColor.systemRed.withAlphaComponent(0.3).cgColor
+        containerView.addSubview(dangerContainer)
         
-        let currentConfigText = NSTextField(wrappingLabelWithString: """
-        📊 Jornada: \(hoursToHHMM(currentHours))
-        💰 Banco: \(hoursToHHMM(currentBalance))
-        📅 Dias: \(timeTracker.workDaysDescription())
-        """)
-        currentConfigText.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        currentConfigText.frame = NSRect(x: 15, y: 15, width: 390, height: 60)
-        currentConfigText.isEditable = false
-        currentConfigText.isBordered = false
-        currentConfigText.backgroundColor = .clear
-        summaryContainer.addSubview(currentConfigText)
+        // Aviso sobre reset
+        let dangerWarning = NSTextField(wrappingLabelWithString: "⚠️ ATENÇÃO: Esta ação irá apagar TODOS os dados incluindo histórico de trabalho, banco de horas e configurações. Esta ação não pode ser desfeita!")
+        dangerWarning.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        dangerWarning.textColor = .systemRed
+        dangerWarning.frame = NSRect(x: 15, y: 45, width: 390, height: 30)
+        dangerWarning.isEditable = false
+        dangerWarning.isBordered = false
+        dangerWarning.backgroundColor = .clear
+        dangerContainer.addSubview(dangerWarning)
+        
+        // Botão de reset
+        let resetButton = NSButton(title: "🗑️ Resetar Todos os Dados", target: self, action: #selector(resetDataFromModal))
+        resetButton.frame = NSRect(x: 15, y: 10, width: 180, height: 30)
+        resetButton.bezelStyle = .rounded
+        resetButton.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        dangerContainer.addSubview(resetButton)
         
         alert.accessoryView = containerView
         
