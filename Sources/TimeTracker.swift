@@ -55,14 +55,72 @@ class TimeTracker: ObservableObject {
     @Published var currentPauseStart: Date?
     @Published var totalPauseTime: TimeInterval = 0
     
-    private let standardWorkHours: TimeInterval = 6 * 3600 // 6 horas em segundos
+    // Configurações do usuário (sem valores padrão hardcoded)
+    var standardWorkHours: TimeInterval {
+        get {
+            let hours = userDefaults.double(forKey: "workHoursPerDay")
+            return hours > 0 ? hours * 3600 : 8 * 3600 // Default 8h se não configurado
+        }
+        set {
+            userDefaults.set(newValue / 3600, forKey: "workHoursPerDay")
+        }
+    }
+    
     private let userDefaults = UserDefaults.standard
     private var updateTimer: Timer?
+    
+    // Chave para verificar se é primeira execução
+    private let firstLaunchKey = "hasLaunchedBefore"
+    private let initialSetupCompletedKey = "initialSetupCompleted"
     
     private init() {
         // Verificar se há uma sessão em andamento
         checkForActiveSession()
         setupUpdateTimer()
+    }
+    
+    // MARK: - Configuração Inicial
+    
+    /// Verifica se é a primeira vez que o usuário abre o app
+    func isFirstLaunch() -> Bool {
+        return !userDefaults.bool(forKey: firstLaunchKey)
+    }
+    
+    /// Verifica se a configuração inicial foi completada
+    func isInitialSetupCompleted() -> Bool {
+        return userDefaults.bool(forKey: initialSetupCompletedKey)
+    }
+    
+    /// Força uma nova configuração inicial (para debugging ou reset)
+    func forceInitialSetup() {
+        userDefaults.removeObject(forKey: firstLaunchKey)
+        userDefaults.removeObject(forKey: initialSetupCompletedKey)
+    }
+    
+    /// Marca que a configuração inicial foi completada
+    func markInitialSetupCompleted() {
+        userDefaults.set(true, forKey: firstLaunchKey)
+        userDefaults.set(true, forKey: initialSetupCompletedKey)
+    }
+    
+    /// Define as configurações iniciais do usuário
+    func setupInitialConfiguration(workHoursPerDay: Double, initialOvertimeBalance: Double = 0) {
+        // Configurar horas de trabalho
+        userDefaults.set(workHoursPerDay, forKey: "workHoursPerDay")
+        
+        // Configurar saldo inicial de horas extras (se fornecido)
+        if initialOvertimeBalance > 0 {
+            setInitialOvertimeBalance(initialOvertimeBalance)
+        }
+        
+        // Marcar configuração como completa
+        markInitialSetupCompleted()
+    }
+    
+    /// Define o saldo inicial de horas extras
+    func setInitialOvertimeBalance(_ hours: Double) {
+        userDefaults.set(hours, forKey: "historicalOvertimeBalance")
+        objectWillChange.send()
     }
     
     private func setupUpdateTimer() {
@@ -389,6 +447,11 @@ class TimeTracker: ObservableObject {
         userDefaults.removeObject(forKey: "currentSessionStart")
         userDefaults.removeObject(forKey: "currentPauseStart")
         userDefaults.removeObject(forKey: "totalPauseTime")
+        userDefaults.removeObject(forKey: "workHoursPerDay")
+        userDefaults.removeObject(forKey: firstLaunchKey)
+        userDefaults.removeObject(forKey: initialSetupCompletedKey)
+        userDefaults.removeObject(forKey: lastAbateKey)
+        userDefaults.removeObject(forKey: abateSecondsKey)
         
         isWorking = false
         isPaused = false

@@ -17,6 +17,9 @@ class MenuBarController: NSObject, ObservableObject {
         setupTimer()
         setupBindings()
         
+        // Verificar se é primeira execução e pedir configuração inicial
+        checkAndShowInitialSetup()
+        
         // Observar mudanças na status bar para garantir visibilidade
         NotificationCenter.default.addObserver(
             self,
@@ -276,6 +279,27 @@ class MenuBarController: NSObject, ObservableObject {
                 menu.addItem(NSMenuItem.separator())
             }
             
+            // Configurações
+            menu.addItem(NSMenuItem.separator())
+            
+            let configWorkHoursItem = NSMenuItem(
+                title: "⚙️ Editar Horas de Trabalho",
+                action: #selector(self.editWorkHours),
+                keyEquivalent: ""
+            )
+            configWorkHoursItem.target = self
+            menu.addItem(configWorkHoursItem)
+            
+            let configOvertimeItem = NSMenuItem(
+                title: "💰 Editar Banco de Horas",
+                action: #selector(self.editOvertimeBalance),
+                keyEquivalent: ""
+            )
+            configOvertimeItem.target = self
+            menu.addItem(configOvertimeItem)
+            
+            menu.addItem(NSMenuItem.separator())
+            
             // Sair
             let quitItem = NSMenuItem(
                 title: "Sair",
@@ -406,6 +430,216 @@ class MenuBarController: NSObject, ObservableObject {
         if alert.runModal() == .alertFirstButtonReturn {
             timeTracker.resetAllData()
             updateMenu()
+        }
+    }
+    
+    // MARK: - Configuração Inicial
+    
+    /// Verifica se precisa mostrar a configuração inicial
+    private func checkAndShowInitialSetup() {
+        // Executar após um pequeno delay para garantir que a interface esteja pronta
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            let isFirstLaunch = self.timeTracker.isFirstLaunch()
+            let isSetupCompleted = self.timeTracker.isInitialSetupCompleted()
+            
+            if isFirstLaunch || !isSetupCompleted {
+                self.showInitialSetup()
+            }
+        }
+    }
+    
+    /// Mostra o assistente de configuração inicial
+    private func showInitialSetup() {
+        let alert = NSAlert()
+        alert.messageText = "🎉 Bem-vindo ao TimeTracker!"
+        alert.informativeText = "Vamos configurar sua jornada de trabalho. Este assistente aparece apenas na primeira vez."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Configurar")
+        alert.addButton(withTitle: "Usar Padrões")
+        
+        let response = alert.runModal()
+        
+        if response == .alertFirstButtonReturn {
+            showWorkHoursSetup()
+        } else {
+            // Usar configurações padrão: 8h de trabalho, sem horas extras
+            timeTracker.setupInitialConfiguration(workHoursPerDay: 8.0, initialOvertimeBalance: 0.0)
+            showWelcomeMessage()
+        }
+    }
+    
+    /// Configuração de horas de trabalho na primeira execução
+    private func showWorkHoursSetup() {
+        let alert = NSAlert()
+        alert.messageText = "⏰ Configurar Jornada de Trabalho"
+        alert.informativeText = "Quantas horas você trabalha por dia? (exemplo: 8, 6, 7.5)"
+        alert.alertStyle = .informational
+        
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        textField.stringValue = "8"
+        textField.placeholderString = "Ex: 8.0"
+        alert.accessoryView = textField
+        
+        alert.addButton(withTitle: "Próximo")
+        alert.addButton(withTitle: "Cancelar")
+        
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            let hoursText = textField.stringValue
+            if let hours = Double(hoursText), hours > 0 && hours <= 24 {
+                showOvertimeSetup(workHours: hours)
+            } else {
+                // Valor inválido, mostrar novamente
+                let errorAlert = NSAlert()
+                errorAlert.messageText = "⚠️ Valor Inválido"
+                errorAlert.informativeText = "Por favor, digite um valor válido entre 1 e 24 horas."
+                errorAlert.alertStyle = .warning
+                errorAlert.addButton(withTitle: "OK")
+                errorAlert.runModal()
+                showWorkHoursSetup()
+            }
+        } else {
+            // Usuário cancelou, usar padrão
+            timeTracker.setupInitialConfiguration(workHoursPerDay: 8.0, initialOvertimeBalance: 0.0)
+            showWelcomeMessage()
+        }
+    }
+    
+    /// Configuração de saldo inicial de horas extras
+    private func showOvertimeSetup(workHours: Double) {
+        let alert = NSAlert()
+        alert.messageText = "⚡ Saldo de Horas Extras"
+        alert.informativeText = "Você já tem algum saldo de horas extras? Digite o valor ou deixe 0 se não tiver."
+        alert.alertStyle = .informational
+        
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        textField.stringValue = "0"
+        textField.placeholderString = "Ex: 10.5"
+        alert.accessoryView = textField
+        
+        alert.addButton(withTitle: "Finalizar")
+        alert.addButton(withTitle: "Pular")
+        
+        let response = alert.runModal()
+        var overtimeBalance = 0.0
+        
+        if response == .alertFirstButtonReturn {
+            let overtimeText = textField.stringValue
+            if let overtime = Double(overtimeText), overtime >= 0 {
+                overtimeBalance = overtime
+            }
+        }
+        
+        // Salvar configurações
+        timeTracker.setupInitialConfiguration(workHoursPerDay: workHours, initialOvertimeBalance: overtimeBalance)
+        showWelcomeMessage()
+    }
+    
+    /// Mensagem de boas-vindas após configuração
+    private func showWelcomeMessage() {
+        let alert = NSAlert()
+        alert.messageText = "✅ Configuração Concluída!"
+        alert.informativeText = """
+        TimeTracker está pronto para uso!
+        
+        📍 Clique no ícone na barra de menu para:
+        • Iniciar/pausar trabalho
+        • Ver estatísticas
+        • Gerenciar horas extras
+        
+        💡 Dica: Use 'Abater Restante da Jornada' para usar horas extras e completar o dia rapidamente.
+        """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Começar!")
+        alert.runModal()
+        
+        // Atualizar menu após configuração
+        updateMenu()
+    }
+    
+    // MARK: - Edição de Configurações
+    
+    @objc private func editWorkHours() {
+        let alert = NSAlert()
+        alert.messageText = "⏰ Editar Jornada de Trabalho"
+        alert.informativeText = "Quantas horas você trabalha por dia?"
+        alert.alertStyle = .informational
+        
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        let currentHours = timeTracker.standardWorkHours / 3600.0 // Converter segundos para horas
+        textField.stringValue = String(format: "%.1f", currentHours)
+        textField.placeholderString = "Ex: 8.0"
+        alert.accessoryView = textField
+        
+        alert.addButton(withTitle: "Salvar")
+        alert.addButton(withTitle: "Cancelar")
+        
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            let hoursText = textField.stringValue
+            if let hours = Double(hoursText), hours > 0 && hours <= 24 {
+                // Salvar nova jornada de trabalho
+                UserDefaults.standard.set(hours * 3600, forKey: "standardWorkHours") // Converter horas para segundos
+                updateMenu()
+                
+                // Confirmação
+                let successAlert = NSAlert()
+                successAlert.messageText = "✅ Configuração Atualizada"
+                successAlert.informativeText = "Jornada de trabalho atualizada para \(String(format: "%.1f", hours)) horas por dia."
+                successAlert.alertStyle = .informational
+                successAlert.addButton(withTitle: "OK")
+                successAlert.runModal()
+            } else {
+                // Valor inválido
+                let errorAlert = NSAlert()
+                errorAlert.messageText = "⚠️ Valor Inválido"
+                errorAlert.informativeText = "Por favor, digite um valor válido entre 1 e 24 horas."
+                errorAlert.alertStyle = .warning
+                errorAlert.addButton(withTitle: "OK")
+                errorAlert.runModal()
+            }
+        }
+    }
+    
+    @objc private func editOvertimeBalance() {
+        let alert = NSAlert()
+        alert.messageText = "💰 Editar Banco de Horas"
+        alert.informativeText = "Qual o seu saldo atual de horas extras?"
+        alert.alertStyle = .informational
+        
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        let currentBalance = timeTracker.getTotalOvertimeBalance() / 3600.0 // Converter segundos para horas
+        textField.stringValue = String(format: "%.1f", currentBalance)
+        textField.placeholderString = "Ex: 10.5"
+        alert.accessoryView = textField
+        
+        alert.addButton(withTitle: "Salvar")
+        alert.addButton(withTitle: "Cancelar")
+        
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            let balanceText = textField.stringValue
+            if let balance = Double(balanceText), balance >= 0 {
+                // Salvar novo saldo
+                timeTracker.setInitialOvertimeBalance(balance)
+                updateMenu()
+                
+                // Confirmação
+                let successAlert = NSAlert()
+                successAlert.messageText = "✅ Saldo Atualizado"
+                successAlert.informativeText = "Saldo de horas extras atualizado para \(String(format: "%.1f", balance)) horas."
+                successAlert.alertStyle = .informational
+                successAlert.addButton(withTitle: "OK")
+                successAlert.runModal()
+            } else {
+                // Valor inválido
+                let errorAlert = NSAlert()
+                errorAlert.messageText = "⚠️ Valor Inválido"
+                errorAlert.informativeText = "Por favor, digite um valor válido (0 ou maior)."
+                errorAlert.alertStyle = .warning
+                errorAlert.addButton(withTitle: "OK")
+                errorAlert.runModal()
+            }
         }
     }
     
