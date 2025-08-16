@@ -338,101 +338,6 @@ class MenuBarController: ObservableObject {
         NSApplication.shared.terminate(nil)
     }
     
-    @objc func resetData() {
-        let alert = NSAlert()
-        alert.messageText = "Tem certeza de que deseja resetar todos os dados?"
-        alert.informativeText = "Esta ação não pode ser desfeita."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Resetar")
-        alert.addButton(withTitle: "Cancelar")
-        if alert.runModal() == .alertFirstButtonReturn {
-            timeTracker.resetAllData()
-            updateMenu()
-        }
-    }
-    
-    @objc func resetDataFromModal() {
-        // Modal único de confirmação simples
-        let alert = NSAlert()
-        alert.messageText = "⚠️ CUIDADO - ÁREA PERIGOSA"
-        alert.informativeText = """
-        🚨 ATENÇÃO: Esta ação irá apagar PERMANENTEMENTE:
-        
-        • Todo o histórico de trabalho
-        • Banco de horas acumulado
-        • Todas as configurações personalizadas
-        • Dados de sessões e pausas
-        
-        Esta ação NÃO PODE ser desfeita!
-        
-        Tem CERTEZA ABSOLUTA de que deseja continuar?
-        """
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: "❌ NÃO, Cancelar")
-        alert.addButton(withTitle: "� SIM, Resetar Tudo")
-        
-        // Usar DispatchQueue para fechar modal atual e abrir novo
-        DispatchQueue.main.async {
-            // Parar qualquer modal que esteja rodando atualmente  
-            NSApplication.shared.stopModal(withCode: .alertSecondButtonReturn)
-            
-            // Pequeno delay para garantir fechamento
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                let response = alert.runModal()
-                if response == .alertSecondButtonReturn {
-                    // Executar reset diretamente
-                    self.timeTracker.resetAllData()
-                    self.updateMenu()
-                    
-                    // Mostrar confirmação de sucesso
-                    self.showResetSuccessAlert()
-                } else {
-                    // Usuário cancelou - reabrir modal de configurações
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        self.showConfigurationsModal()
-                    }
-                }
-            }
-        }
-    }
-    
-    private func showResetSuccessAlert() {
-        let successAlert = NSAlert()
-        successAlert.messageText = "✅ Reset Concluído"
-        successAlert.informativeText = "Todos os dados foram apagados com sucesso! A aplicação será reiniciada para executar o assistente de configuração inicial."
-        successAlert.alertStyle = .informational
-        successAlert.addButton(withTitle: "OK - Reiniciar")
-        
-        // Usar runModal diretamente para centralizar na tela
-        successAlert.runModal()
-        
-        // Reiniciar a aplicação após pequeno delay
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.restartApplication()
-        }
-    }
-    
-    private func restartApplication() {
-        // Para aplicações Swift executadas via swift run, vamos reinicializar o estado interno
-        // Em vez de tentar reiniciar o processo (que é complexo em desenvolvimento)
-        
-        // Primeiro, reseta completamente o estado da aplicação
-        timer?.invalidate()
-        timer = nil
-        
-        // Remove todos os itens do menu
-        statusBarItem.menu?.removeAllItems()
-        
-        // Reinicializa completamente o controlador
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            // Recria o menu do zero
-            self.setupMenu()
-            
-            // Força o setup inicial a aparecer
-            self.showInitialSetupIfNeeded()
-        }
-    }
-    
     // MARK: - HH:MM Conversion Functions
     
     private func hoursToHHMM(_ hours: Double) -> String {
@@ -632,27 +537,27 @@ class MenuBarController: ObservableObject {
         alert.addButton(withTitle: "❌ Cancelar")
         
         // Container principal
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 380))
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 280))
         
         // ===== SEÇÃO 1: JORNADA DE TRABALHO =====
         // Título da seção
         let workSectionTitle = NSTextField(labelWithString: "🕒 JORNADA DE TRABALHO")
         workSectionTitle.font = NSFont.boldSystemFont(ofSize: 13)
-        workSectionTitle.frame = NSRect(x: 20, y: 350, width: 200, height: 20)
+        workSectionTitle.frame = NSRect(x: 20, y: 250, width: 200, height: 20)
         containerView.addSubview(workSectionTitle)
         
         // Linha separadora
         let workSeparator = NSBox()
         workSeparator.boxType = .separator
-        workSeparator.frame = NSRect(x: 20, y: 345, width: 440, height: 1)
+        workSeparator.frame = NSRect(x: 20, y: 245, width: 440, height: 1)
         containerView.addSubview(workSeparator)
         
         // Campo de jornada diária
         let workHoursLabel = NSTextField(labelWithString: "Horas por dia:")
-        workHoursLabel.frame = NSRect(x: 30, y: 315, width: 100, height: 17)
+        workHoursLabel.frame = NSRect(x: 30, y: 215, width: 100, height: 17)
         containerView.addSubview(workHoursLabel)
         
-        let workHoursField = NSTextField(frame: NSRect(x: 140, y: 312, width: 80, height: 24))
+        let workHoursField = NSTextField(frame: NSRect(x: 140, y: 212, width: 80, height: 24))
         let currentHours = timeTracker.standardWorkHours / 3600.0
         workHoursField.stringValue = hoursToHHMM(currentHours)
         workHoursField.placeholderString = "08:00"
@@ -662,28 +567,28 @@ class MenuBarController: ObservableObject {
         let workHoursHint = NSTextField(labelWithString: "(formato HH:MM)")
         workHoursHint.font = NSFont.systemFont(ofSize: 10)
         workHoursHint.textColor = .secondaryLabelColor
-        workHoursHint.frame = NSRect(x: 230, y: 318, width: 100, height: 12)
+        workHoursHint.frame = NSRect(x: 230, y: 218, width: 100, height: 12)
         containerView.addSubview(workHoursHint)
         
         // ===== SEÇÃO 2: BANCO DE HORAS =====
         // Título da seção
         let overtimeSectionTitle = NSTextField(labelWithString: "💰 BANCO DE HORAS")
         overtimeSectionTitle.font = NSFont.boldSystemFont(ofSize: 13)
-        overtimeSectionTitle.frame = NSRect(x: 20, y: 280, width: 200, height: 20)
+        overtimeSectionTitle.frame = NSRect(x: 20, y: 180, width: 200, height: 20)
         containerView.addSubview(overtimeSectionTitle)
         
         // Linha separadora
         let overtimeSeparator = NSBox()
         overtimeSeparator.boxType = .separator
-        overtimeSeparator.frame = NSRect(x: 20, y: 275, width: 440, height: 1)
+        overtimeSeparator.frame = NSRect(x: 20, y: 175, width: 440, height: 1)
         containerView.addSubview(overtimeSeparator)
         
         // Campo de banco de horas
         let overtimeLabel = NSTextField(labelWithString: "Saldo atual:")
-        overtimeLabel.frame = NSRect(x: 30, y: 245, width: 100, height: 17)
+        overtimeLabel.frame = NSRect(x: 30, y: 145, width: 100, height: 17)
         containerView.addSubview(overtimeLabel)
         
-        let overtimeField = NSTextField(frame: NSRect(x: 140, y: 242, width: 80, height: 24))
+        let overtimeField = NSTextField(frame: NSRect(x: 140, y: 142, width: 80, height: 24))
         let currentBalance = timeTracker.getTotalOvertimeBalance() / 3600.0
         overtimeField.stringValue = hoursToHHMM(currentBalance)
         overtimeField.placeholderString = "00:00"
@@ -693,20 +598,20 @@ class MenuBarController: ObservableObject {
         let overtimeHint = NSTextField(labelWithString: "(formato HH:MM)")
         overtimeHint.font = NSFont.systemFont(ofSize: 10)
         overtimeHint.textColor = .secondaryLabelColor
-        overtimeHint.frame = NSRect(x: 230, y: 248, width: 100, height: 12)
+        overtimeHint.frame = NSRect(x: 230, y: 148, width: 100, height: 12)
         containerView.addSubview(overtimeHint)
         
         // ===== SEÇÃO 3: DIAS DE TRABALHO =====
         // Título da seção
         let daysSectionTitle = NSTextField(labelWithString: "📅 DIAS DE TRABALHO")
         daysSectionTitle.font = NSFont.boldSystemFont(ofSize: 13)
-        daysSectionTitle.frame = NSRect(x: 20, y: 210, width: 200, height: 20)
+        daysSectionTitle.frame = NSRect(x: 20, y: 110, width: 200, height: 20)
         containerView.addSubview(daysSectionTitle)
         
         // Linha separadora
         let daysSeparator = NSBox()
         daysSeparator.boxType = .separator
-        daysSeparator.frame = NSRect(x: 20, y: 205, width: 440, height: 1)
+        daysSeparator.frame = NSRect(x: 20, y: 105, width: 440, height: 1)
         containerView.addSubview(daysSeparator)
         
         // Checkboxes para dias da semana em layout mais organizado
@@ -715,7 +620,7 @@ class MenuBarController: ObservableObject {
         var dayCheckboxes: [NSButton] = []
         
         // Container para os checkboxes
-        let checkboxContainer = NSView(frame: NSRect(x: 30, y: 160, width: 420, height: 40))
+        let checkboxContainer = NSView(frame: NSRect(x: 30, y: 60, width: 420, height: 40))
         containerView.addSubview(checkboxContainer)
         
         for (index, dayName) in dayNames.enumerated() {
@@ -730,47 +635,6 @@ class MenuBarController: ObservableObject {
             checkboxContainer.addSubview(checkbox)
             dayCheckboxes.append(checkbox)
         }
-        
-        // ===== SEÇÃO 4: ÁREA PERIGOSA =====
-        // Título da seção
-        let dangerSectionTitle = NSTextField(labelWithString: "⚠️ ÁREA PERIGOSA")
-        dangerSectionTitle.font = NSFont.boldSystemFont(ofSize: 13)
-        dangerSectionTitle.textColor = .systemRed
-        dangerSectionTitle.frame = NSRect(x: 20, y: 130, width: 200, height: 20)
-        containerView.addSubview(dangerSectionTitle)
-        
-        // Linha separadora vermelha
-        let dangerSeparator = NSBox()
-        dangerSeparator.boxType = .separator
-        dangerSeparator.fillColor = .systemRed
-        dangerSeparator.frame = NSRect(x: 20, y: 125, width: 440, height: 1)
-        containerView.addSubview(dangerSeparator)
-        
-        // Container para área perigosa com fundo vermelho claro
-        let dangerContainer = NSView(frame: NSRect(x: 30, y: 40, width: 420, height: 80))
-        dangerContainer.wantsLayer = true
-        dangerContainer.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.1).cgColor
-        dangerContainer.layer?.cornerRadius = 8
-        dangerContainer.layer?.borderWidth = 1
-        dangerContainer.layer?.borderColor = NSColor.systemRed.withAlphaComponent(0.3).cgColor
-        containerView.addSubview(dangerContainer)
-        
-        // Aviso sobre reset
-        let dangerWarning = NSTextField(wrappingLabelWithString: "⚠️ ATENÇÃO: Esta ação irá apagar TODOS os dados incluindo histórico de trabalho, banco de horas e configurações. Esta ação não pode ser desfeita!")
-        dangerWarning.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-        dangerWarning.textColor = .systemRed
-        dangerWarning.frame = NSRect(x: 15, y: 45, width: 390, height: 30)
-        dangerWarning.isEditable = false
-        dangerWarning.isBordered = false
-        dangerWarning.backgroundColor = .clear
-        dangerContainer.addSubview(dangerWarning)
-        
-        // Botão de reset
-        let resetButton = NSButton(title: "🗑️ Resetar Todos os Dados", target: self, action: #selector(resetDataFromModal))
-        resetButton.frame = NSRect(x: 15, y: 10, width: 180, height: 30)
-        resetButton.bezelStyle = .rounded
-        resetButton.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        dangerContainer.addSubview(resetButton)
         
         alert.accessoryView = containerView
         
