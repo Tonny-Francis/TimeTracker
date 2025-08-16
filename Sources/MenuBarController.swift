@@ -285,6 +285,14 @@ class MenuBarController: NSObject, ObservableObject {
             configOvertimeItem.target = self
             menu.addItem(configOvertimeItem)
             
+            let configWorkDaysItem = NSMenuItem(
+                title: "📅 Editar Dias de Trabalho",
+                action: #selector(self.editWorkDays),
+                keyEquivalent: ""
+            )
+            configWorkDaysItem.target = self
+            menu.addItem(configWorkDaysItem)
+            
             menu.addItem(NSMenuItem.separator())
             
             // Sair
@@ -427,14 +435,9 @@ class MenuBarController: NSObject, ObservableObject {
               let minutes = Int(components[1]),
               hours >= 0,
               minutes >= 0 && minutes <= 59 else {
-            print("DEBUG: Falha na conversão de '\(hhmmString)' (trimmed: '\(trimmedString)')")
-            if components.count != 2 {
-                print("DEBUG: Número de componentes incorreto: \(components.count)")
-            }
             return nil
         }
         let result = Double(hours) + (Double(minutes) / 60.0)
-        print("DEBUG: Converteu '\(trimmedString)' para \(result) horas")
         return result
     }
     
@@ -500,7 +503,7 @@ class MenuBarController: NSObject, ObservableObject {
         if response == .alertFirstButtonReturn {
             let timeText = textField.stringValue
             if let hours = hhmmToHours(timeText), hours > 0 && hours <= 24 {
-                showOvertimeSetup(workHours: hours)
+                showWorkDaysSetup(workHours: hours)
             } else {
                 // Valor inválido, mostrar novamente
                 let errorAlert = NSAlert()
@@ -518,8 +521,63 @@ class MenuBarController: NSObject, ObservableObject {
         }
     }
     
+    /// Configuração de dias de trabalho
+    private func showWorkDaysSetup(workHours: Double) {
+        let alert = NSAlert()
+        alert.messageText = "📅 Configurar Dias de Trabalho"
+        alert.informativeText = "Selecione os dias da semana em que você trabalha:"
+        alert.alertStyle = .informational
+        
+        // Criar view customizada com checkboxes
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 200))
+        
+        let dayNames = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"]
+        let defaultWorkDays = [2, 3, 4, 5, 6] // Segunda a Sexta por padrão
+        var checkboxes: [NSButton] = []
+        
+        for (index, dayName) in dayNames.enumerated() {
+            let checkbox = NSButton(checkboxWithTitle: dayName, target: nil, action: nil)
+            checkbox.frame = NSRect(x: 10, y: 170 - (index * 25), width: 200, height: 20)
+            checkbox.state = defaultWorkDays.contains(index + 1) ? .on : .off
+            containerView.addSubview(checkbox)
+            checkboxes.append(checkbox)
+        }
+        
+        alert.accessoryView = containerView
+        alert.addButton(withTitle: "Próximo")
+        alert.addButton(withTitle: "Cancelar")
+        
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            // Coletar dias selecionados
+            var selectedDays: [Int] = []
+            for (index, checkbox) in checkboxes.enumerated() {
+                if checkbox.state == .on {
+                    selectedDays.append(index + 1) // weekday é 1-based
+                }
+            }
+            
+            if selectedDays.isEmpty {
+                // Nenhum dia selecionado, mostrar aviso
+                let warningAlert = NSAlert()
+                warningAlert.messageText = "⚠️ Nenhum Dia Selecionado"
+                warningAlert.informativeText = "Você deve selecionar pelo menos um dia de trabalho."
+                warningAlert.alertStyle = .warning
+                warningAlert.addButton(withTitle: "OK")
+                warningAlert.runModal()
+                showWorkDaysSetup(workHours: workHours)
+            } else {
+                showOvertimeSetup(workHours: workHours, workDays: selectedDays)
+            }
+        } else {
+            // Usuário cancelou, usar padrão
+            timeTracker.setupInitialConfiguration(workHoursPerDay: 8.0, initialOvertimeBalance: 0.0)
+            showWelcomeMessage()
+        }
+    }
+    
     /// Configuração de saldo inicial de horas extras
-    private func showOvertimeSetup(workHours: Double) {
+    private func showOvertimeSetup(workHours: Double, workDays: [Int]) {
         let alert = NSAlert()
         alert.messageText = "⚡ Saldo de Horas Extras"
         alert.informativeText = "Você já tem algum saldo de horas extras? Use o formato HH:MM ou digite 00:00 se não tiver."
@@ -544,7 +602,7 @@ class MenuBarController: NSObject, ObservableObject {
         }
         
         // Salvar configurações
-        timeTracker.setupInitialConfiguration(workHoursPerDay: workHours, initialOvertimeBalance: overtimeBalance)
+        timeTracker.setupInitialConfiguration(workHoursPerDay: workHours, initialOvertimeBalance: overtimeBalance, workDays: workDays)
         showWelcomeMessage()
     }
     
@@ -652,6 +710,65 @@ class MenuBarController: NSObject, ObservableObject {
                 errorAlert.alertStyle = .warning
                 errorAlert.addButton(withTitle: "OK")
                 errorAlert.runModal()
+            }
+        }
+    }
+    
+    @objc private func editWorkDays() {
+        let alert = NSAlert()
+        alert.messageText = "📅 Editar Dias de Trabalho"
+        alert.informativeText = "Selecione os dias da semana em que você trabalha:"
+        alert.alertStyle = .informational
+        
+        // Criar view customizada com checkboxes
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 200))
+        
+        let dayNames = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"]
+        let currentWorkDays = timeTracker.workDays
+        var checkboxes: [NSButton] = []
+        
+        for (index, dayName) in dayNames.enumerated() {
+            let checkbox = NSButton(checkboxWithTitle: dayName, target: nil, action: nil)
+            checkbox.frame = NSRect(x: 10, y: 170 - (index * 25), width: 200, height: 20)
+            checkbox.state = currentWorkDays.contains(index + 1) ? .on : .off
+            containerView.addSubview(checkbox)
+            checkboxes.append(checkbox)
+        }
+        
+        alert.accessoryView = containerView
+        alert.addButton(withTitle: "Salvar")
+        alert.addButton(withTitle: "Cancelar")
+        
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            // Coletar dias selecionados
+            var selectedDays: [Int] = []
+            for (index, checkbox) in checkboxes.enumerated() {
+                if checkbox.state == .on {
+                    selectedDays.append(index + 1) // weekday é 1-based
+                }
+            }
+            
+            if selectedDays.isEmpty {
+                // Nenhum dia selecionado, mostrar aviso
+                let warningAlert = NSAlert()
+                warningAlert.messageText = "⚠️ Nenhum Dia Selecionado"
+                warningAlert.informativeText = "Você deve selecionar pelo menos um dia de trabalho."
+                warningAlert.alertStyle = .warning
+                warningAlert.addButton(withTitle: "OK")
+                warningAlert.runModal()
+            } else {
+                // Salvar novos dias de trabalho
+                timeTracker.setWorkDays(selectedDays)
+                updateMenu()
+                
+                // Confirmação
+                let successAlert = NSAlert()
+                successAlert.messageText = "✅ Dias de Trabalho Atualizados"
+                successAlert.informativeText = "Configuração atualizada: \(timeTracker.workDaysDescription())"
+                successAlert.alertStyle = .informational
+                successAlert.addButton(withTitle: "OK")
+                successAlert.runModal()
             }
         }
     }

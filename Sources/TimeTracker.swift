@@ -104,9 +104,12 @@ class TimeTracker: ObservableObject {
     }
     
     /// Define as configurações iniciais do usuário
-    func setupInitialConfiguration(workHoursPerDay: Double, initialOvertimeBalance: Double = 0) {
+    func setupInitialConfiguration(workHoursPerDay: Double, initialOvertimeBalance: Double = 0, workDays: [Int] = [2, 3, 4, 5, 6]) {
         // Configurar horas de trabalho
         userDefaults.set(workHoursPerDay, forKey: "workHoursPerDay")
+        
+        // Configurar dias de trabalho
+        setWorkDays(workDays)
         
         // Configurar saldo inicial de horas extras (se fornecido)
         if initialOvertimeBalance > 0 {
@@ -135,6 +138,44 @@ class TimeTracker: ObservableObject {
             }
         }
         RunLoop.main.add(updateTimer!, forMode: .common)
+    }
+    
+    // MARK: - Configuração de Dias de Trabalho
+    
+    /// Define quais dias da semana são dias de trabalho
+    func setWorkDays(_ workDays: [Int]) {
+        userDefaults.set(workDays, forKey: "workDays")
+        objectWillChange.send()
+    }
+    
+    /// Retorna os dias da semana configurados como dias de trabalho
+    /// Default: Segunda a Sexta (2, 3, 4, 5, 6)
+    var workDays: [Int] {
+        if let days = userDefaults.array(forKey: "workDays") as? [Int], !days.isEmpty {
+            return days
+        }
+        return [2, 3, 4, 5, 6] // Segunda a Sexta como padrão
+    }
+    
+    /// Verifica se um dia da semana é dia de trabalho
+    func isWorkDay(_ weekday: Int) -> Bool {
+        return workDays.contains(weekday)
+    }
+    
+    /// Converte array de dias para string legível
+    func workDaysDescription() -> String {
+        let dayNames = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"]
+        let workDayNames = workDays.sorted().map { dayNames[$0 - 1] }
+        
+        if workDayNames.count == 7 {
+            return "Todos os dias"
+        } else if workDayNames.count == 5 && workDays.contains(2) && workDays.contains(3) && workDays.contains(4) && workDays.contains(5) && workDays.contains(6) {
+            return "Dias úteis (Seg-Sex)"
+        } else if workDayNames.count <= 3 {
+            return workDayNames.joined(separator: ", ")
+        } else {
+            return "\(workDayNames.prefix(2).joined(separator: ", ")) e mais \(workDayNames.count - 2)"
+        }
     }
     
     // MARK: - Data Persistence
@@ -327,13 +368,13 @@ class TimeTracker: ObservableObject {
         }
         
         // Calcular horas extras baseado em dias úteis
-        // Calcular horas extras baseado em dias úteis, descontando abatimentos
+        // Calcular horas extras baseado nos dias de trabalho configurados, descontando abatimentos
         let calendar = Calendar.current
         var expectedHours: TimeInterval = 0
         var currentDate = start
         while currentDate < end {
             let weekday = calendar.component(.weekday, from: currentDate)
-            if weekday >= 2 && weekday <= 6 { // Segunda a sexta
+            if isWorkDay(weekday) {
                 let abate = getAbateSeconds(for: currentDate)
                 expectedHours += max(0, standardWorkHours - abate)
             }
@@ -350,7 +391,7 @@ class TimeTracker: ObservableObject {
         
         while currentDate < end {
             let weekday = calendar.component(.weekday, from: currentDate)
-            if weekday >= 2 && weekday <= 6 { // Segunda a sexta
+            if isWorkDay(weekday) {
                 workDays += 1
             }
             currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
@@ -422,6 +463,7 @@ class TimeTracker: ObservableObject {
         userDefaults.removeObject(forKey: "overtimeUsages")
         userDefaults.removeObject(forKey: "initialOvertimeBalance")
         userDefaults.removeObject(forKey: "standardWorkHours")
+        userDefaults.removeObject(forKey: "workDays")
         userDefaults.removeObject(forKey: "isWorking")
         userDefaults.removeObject(forKey: "isPaused")
         userDefaults.removeObject(forKey: "currentSessionStart")
