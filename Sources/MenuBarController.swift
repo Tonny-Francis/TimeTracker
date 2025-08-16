@@ -1,68 +1,42 @@
-import SwiftUI
-import AppKit
+import Cocoa
 import Combine
 
-class MenuBarController: NSObject, ObservableObject {
-    private var statusBarItem: NSStatusItem
-    private var timeTracker: TimeTracker
+class MenuBarController: ObservableObject {
+    private let statusBarItem: NSStatusItem
+    private let timeTracker: TimeTracker
     private var timer: Timer?
     private var cancellables = Set<AnyCancellable>()
     
-    init(statusBarItem: NSStatusItem) {
-        self.statusBarItem = statusBarItem
+    init() {
+        self.statusBarItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         self.timeTracker = TimeTracker.shared
-        super.init()
         
-        setupStatusBar()
+        setupStatusBarItem()
         setupTimer()
         setupBindings()
+        updateStatusBarTitle()
+        setupMenu()
         
-        // Verificar se é primeira execução e pedir configuração inicial
-        checkAndShowInitialSetup()
-        
-        // Observar mudanças na status bar para garantir visibilidade
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(statusBarDidChange),
-            name: NSApplication.didChangeScreenParametersNotification,
-            object: nil
-        )
+        // Executar verificação inicial após um delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.showInitialSetupIfNeeded()
+        }
     }
     
-    private func setupStatusBar() {
+    private func setupStatusBarItem() {
         if let button = statusBarItem.button {
-            // Usar apenas ícones padrão do macOS, sem texto
-            button.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "TimeTracker")
-            button.image?.size = NSSize(width: 16, height: 16)
-            button.action = #selector(statusBarButtonClicked)
-            button.target = self
-            
-            // Configurar para que seja sempre visível
-            button.appearsDisabled = false
-            button.imagePosition = NSControl.ImagePosition.imageOnly
-            
-            // Remove qualquer texto
-            button.title = ""
+            button.image = NSImage(systemSymbolName: "clock", accessibilityDescription: "Routine Timer")
+            button.image?.isTemplate = true
         }
-        
         statusBarItem.isVisible = true
-        updateMenu()
-    }
-    
-    @objc private func statusBarDidChange() {
-        DispatchQueue.main.async {
-            self.statusBarItem.isVisible = true
-        }
     }
     
     private func setupTimer() {
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+        // Timer para atualizar a interface a cada segundo
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
-                self.updateStatusBarTitle()
-                // Se estiver trabalhando, recriar o menu completamente para garantir atualização
-                if self.timeTracker.isWorking {
-                    self.updateMenu()
-                }
+                self?.updateStatusBarTitle()
+                self?.updateMenuContent()
             }
         }
         RunLoop.main.add(timer!, forMode: .common)
@@ -80,7 +54,8 @@ class MenuBarController: NSObject, ObservableObject {
     }
     
     private func updateStatusBarTitle() {
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
             if let button = self.statusBarItem.button {
                 // Atualizar apenas o ícone baseado no estado
                 if self.timeTracker.isWorking {
@@ -88,16 +63,13 @@ class MenuBarController: NSObject, ObservableObject {
                         // Ícone de pausa
                         button.image = NSImage(systemSymbolName: "pause.fill", accessibilityDescription: "Em Pausa")
                     } else {
-                        // Ícone de play/trabalhando
+                        // Ícone de trabalho ativo
                         button.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Trabalhando")
                     }
                 } else {
-                    // Ícone de parado
-                    button.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "Parado")
+                    // Ícone padrão quando não está trabalhando
+                    button.image = NSImage(systemSymbolName: "clock", accessibilityDescription: "Parado")
                 }
-                
-                // Manter tamanho consistente
-                button.image?.size = NSSize(width: 16, height: 16)
                 
                 // Garantir que continue visível
                 self.statusBarItem.isVisible = true
@@ -107,9 +79,6 @@ class MenuBarController: NSObject, ObservableObject {
     
     private func updateMenuContent() {
         guard let menu = statusBarItem.menu, menu.items.count > 0 else { return }
-        
-        // Debug: print para verificar se está sendo chamado
-        // print("Atualizando menu - isWorking: \(timeTracker.isWorking)")
         
         // Atualizar o primeiro item (status) - sempre no índice 0
         let statusItem = menu.items[0]
@@ -126,7 +95,7 @@ class MenuBarController: NSObject, ObservableObject {
             statusItem.title = "⏹️ Parado"
         }
         
-        // Atualizar outros itens do menu
+        // Atualizar estatísticas dinâmicas
         for item in menu.items {
             if item.title.hasPrefix("Hoje:") {
                 let todayStats = timeTracker.getTodayStats()
@@ -138,188 +107,165 @@ class MenuBarController: NSObject, ObservableObject {
                 let monthStats = timeTracker.getMonthStats()
                 item.title = "Mês: \(formatDuration(monthStats.totalTime)) | Extras: \(formatDuration(monthStats.overtime))"
             } else if item.title.contains("Saldo:") {
-                item.title = "Usar 1h Extra (Saldo: \(formatDuration(timeTracker.getTotalOvertimeBalance())))"
+                let balance = timeTracker.getTotalOvertimeBalance()
+                item.title = "💰 Saldo: \(formatDuration(balance))"
             }
         }
     }
     
-    private func updateMenu() {
-        DispatchQueue.main.async {
-            let menu = NSMenu()
-            
-            // Status atual com tempo detalhado - sempre atualizado
-            let statusItem = NSMenuItem()
-            if self.timeTracker.isWorking {
-                if self.timeTracker.isPaused {
-                    let workTime = self.formatDuration(self.timeTracker.currentSessionElapsed)
-                    let pauseTime = self.formatDuration(self.timeTracker.currentPauseElapsed)
-                    statusItem.title = "⏸️ Em Pausa | Trabalhado: \(workTime) | Pausa: \(pauseTime)"
-                } else {
-                    let workTime = self.formatDuration(self.timeTracker.currentSessionElapsed)
-                    statusItem.title = "▶️ Trabalhando | Tempo: \(workTime)"
-                }
+    private func setupMenu() {
+        let menu = NSMenu()
+        
+        // Status atual com tempo detalhado - sempre atualizado
+        let statusItem = NSMenuItem()
+        if self.timeTracker.isWorking {
+            if self.timeTracker.isPaused {
+                let workTime = self.formatDuration(self.timeTracker.currentSessionElapsed)
+                let pauseTime = self.formatDuration(self.timeTracker.currentPauseElapsed)
+                statusItem.title = "⏸️ Em Pausa | Trabalhado: \(workTime) | Pausa: \(pauseTime)"
             } else {
-                statusItem.title = "⏹️ Parado"
+                let workTime = self.formatDuration(self.timeTracker.currentSessionElapsed)
+                statusItem.title = "▶️ Trabalhando | Tempo: \(workTime)"
             }
-            statusItem.isEnabled = false
-            menu.addItem(statusItem)
-            
-            menu.addItem(NSMenuItem.separator())
-            
-            // Botões de controle
-            if self.timeTracker.isWorking {
-                if self.timeTracker.isPaused {
-                    let resumeItem = NSMenuItem(
-                        title: "Retomar Trabalho",
-                        action: #selector(self.resumeWork),
-                        keyEquivalent: ""
-                    )
-                    resumeItem.target = self
-                    menu.addItem(resumeItem)
-                } else {
-                    let pauseItem = NSMenuItem(
-                        title: "Pausar Trabalho",
-                        action: #selector(self.pauseWork),
-                        keyEquivalent: ""
-                    )
-                    pauseItem.target = self
-                    menu.addItem(pauseItem)
-                }
-                
-                let stopItem = NSMenuItem(
-                    title: "Parar Trabalho",
-                    action: #selector(self.stopWork),
-                    keyEquivalent: ""
-                )
-                stopItem.target = self
-                menu.addItem(stopItem)
-            } else {
-                let startItem = NSMenuItem(
-                    title: "Iniciar Trabalho",
-                    action: #selector(self.startWork),
-                    keyEquivalent: ""
-                )
-                startItem.target = self
-                menu.addItem(startItem)
-            }
-
-            // Abater tempo restante da jornada das horas extras (visível sempre que houver saldo e tempo restante)
-            let todayStats = self.timeTracker.getTodayStats()
-            let tempoTrabalhadoHoje = todayStats.totalTime
-            let jornada = 6.0 * 3600.0
-            let tempoRestante = max(0, jornada - tempoTrabalhadoHoje)
-            let saldoExtras = self.timeTracker.getTotalOvertimeBalance()
-            let podeAbater = (tempoRestante > 0) && (saldoExtras >= tempoRestante) && self.timeTracker.isWorking && !self.timeTracker.hasAbatedToday()
-            let abaterItem = NSMenuItem(
-                title: "Abater tempo restante da jornada das horas extras",
-                action: podeAbater ? #selector(self.abaterTempoRestanteJornada) : nil,
-                keyEquivalent: ""
-            )
-            abaterItem.target = self
-            abaterItem.isEnabled = podeAbater
-            if tempoRestante == 0 {
-                abaterItem.toolTip = "Jornada já cumprida."
-            } else if saldoExtras < tempoRestante {
-                abaterItem.toolTip = "Saldo de horas extras insuficiente."
-            } else if !self.timeTracker.isWorking {
-                abaterItem.toolTip = "Só é possível abater durante uma jornada em andamento."
-            }
-            if saldoExtras > 0 {
-                menu.addItem(abaterItem)
-            }
-            
-            menu.addItem(NSMenuItem.separator())
-
-            
-            // Estatísticas do dia
-            let todayItem = NSMenuItem()
-            todayItem.title = "Hoje: \(self.formatDuration(todayStats.totalTime)) | Extras: \(self.formatDuration(todayStats.overtime))"
-            todayItem.isEnabled = false
-            menu.addItem(todayItem)
-            
-            // Estatísticas da semana
-            let weekStats = self.timeTracker.getWeekStats()
-            let weekItem = NSMenuItem()
-            weekItem.title = "Semana: \(self.formatDuration(weekStats.totalTime)) | Extras: \(self.formatDuration(weekStats.overtime))"
-            weekItem.isEnabled = false
-            menu.addItem(weekItem)
-            
-            // Estatísticas do mês
-            let monthStats = self.timeTracker.getMonthStats()
-            let monthItem = NSMenuItem()
-            monthItem.title = "Mês: \(self.formatDuration(monthStats.totalTime)) | Extras: \(self.formatDuration(monthStats.overtime))"
-            monthItem.isEnabled = false
-            menu.addItem(monthItem)
-            
-            menu.addItem(NSMenuItem.separator())
-            
-            // Usar horas extras
-            if self.timeTracker.getTotalOvertimeBalance() > 0 {
-                let useOvertimeItem = NSMenuItem(
-                    title: "Usar 1h Extra (Saldo: \(self.formatDuration(self.timeTracker.getTotalOvertimeBalance())))",
-                    action: #selector(self.useOvertime),
-                    keyEquivalent: ""
-                )
-                useOvertimeItem.target = self
-                menu.addItem(useOvertimeItem)
-                
-                menu.addItem(NSMenuItem.separator())
-            }
-            
-            // Configurações
-            menu.addItem(NSMenuItem.separator())
-            
-            let configWorkHoursItem = NSMenuItem(
-                title: "⚙️ Editar Horas de Trabalho",
-                action: #selector(self.editWorkHours),
-                keyEquivalent: ""
-            )
-            configWorkHoursItem.target = self
-            menu.addItem(configWorkHoursItem)
-            
-            let configOvertimeItem = NSMenuItem(
-                title: "💰 Editar Banco de Horas",
-                action: #selector(self.editOvertimeBalance),
-                keyEquivalent: ""
-            )
-            configOvertimeItem.target = self
-            menu.addItem(configOvertimeItem)
-            
-            let configWorkDaysItem = NSMenuItem(
-                title: "📅 Editar Dias de Trabalho",
-                action: #selector(self.editWorkDays),
-                keyEquivalent: ""
-            )
-            configWorkDaysItem.target = self
-            menu.addItem(configWorkDaysItem)
-            
-            menu.addItem(NSMenuItem.separator())
-            
-            // Sair
-            let quitItem = NSMenuItem(
-                title: "Sair",
-                action: #selector(self.quit),
-                keyEquivalent: "q"
-            )
-            quitItem.target = self
-            menu.addItem(quitItem)
-            
-            // Opção de reset (apenas para correção)
-            let resetItem = NSMenuItem(
-                title: "🔄 Reset Dados",
-                action: #selector(self.resetData),
-                keyEquivalent: ""
-            )
-            resetItem.target = self
-            menu.addItem(resetItem)
-            
-            self.statusBarItem.menu = menu
+        } else {
+            statusItem.title = "⏹️ Parado"
         }
+        statusItem.isEnabled = false
+        menu.addItem(statusItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // Botões de controle
+        if self.timeTracker.isWorking {
+            if self.timeTracker.isPaused {
+                let resumeItem = NSMenuItem(
+                    title: "Retomar Trabalho",
+                    action: #selector(self.resumeWork),
+                    keyEquivalent: ""
+                )
+                resumeItem.target = self
+                menu.addItem(resumeItem)
+            } else {
+                let pauseItem = NSMenuItem(
+                    title: "Pausar Trabalho",
+                    action: #selector(self.pauseWork),
+                    keyEquivalent: ""
+                )
+                pauseItem.target = self
+                menu.addItem(pauseItem)
+            }
+            
+            let stopItem = NSMenuItem(
+                title: "Parar Trabalho",
+                action: #selector(self.stopWork),
+                keyEquivalent: ""
+            )
+            stopItem.target = self
+            menu.addItem(stopItem)
+        } else {
+            let startItem = NSMenuItem(
+                title: "Iniciar Trabalho",
+                action: #selector(self.startWork),
+                keyEquivalent: ""
+            )
+            startItem.target = self
+            menu.addItem(startItem)
+        }
+
+        // Abater tempo restante da jornada das horas extras (visível sempre que houver saldo e tempo restante)
+        let todayStats = self.timeTracker.getTodayStats()
+        let tempoTrabalhadoHoje = todayStats.totalTime
+        let jornada = 6.0 * 3600.0
+        let tempoRestante = max(0, jornada - tempoTrabalhadoHoje)
+        let saldoExtras = self.timeTracker.getTotalOvertimeBalance()
+        let podeAbater = (tempoRestante > 0) && (saldoExtras >= tempoRestante) && self.timeTracker.isWorking && !self.timeTracker.hasAbatedToday()
+        let abaterItem = NSMenuItem(
+            title: "Abater tempo restante da jornada das horas extras",
+            action: podeAbater ? #selector(self.abaterTempoRestanteJornada) : nil,
+            keyEquivalent: ""
+        )
+        abaterItem.target = self
+        abaterItem.isEnabled = podeAbater
+        if tempoRestante == 0 {
+            abaterItem.toolTip = "Jornada já foi completada hoje."
+        } else if saldoExtras < tempoRestante {
+            abaterItem.toolTip = "Saldo de horas extras insuficiente."
+        } else if !self.timeTracker.isWorking {
+            abaterItem.toolTip = "Só é possível abater durante uma jornada em andamento."
+        }
+        menu.addItem(abaterItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // Estatísticas do dia
+        let todayItem = NSMenuItem()
+        todayItem.title = "Hoje: \(self.formatDuration(todayStats.totalTime)) | Extras: \(self.formatDuration(todayStats.overtime))"
+        todayItem.isEnabled = false
+        menu.addItem(todayItem)
+        
+        // Estatísticas da semana
+        let weekStats = self.timeTracker.getWeekStats()
+        let weekItem = NSMenuItem()
+        weekItem.title = "Semana: \(self.formatDuration(weekStats.totalTime)) | Extras: \(self.formatDuration(weekStats.overtime))"
+        weekItem.isEnabled = false
+        menu.addItem(weekItem)
+        
+        // Estatísticas do mês
+        let monthStats = self.timeTracker.getMonthStats()
+        let monthItem = NSMenuItem()
+        monthItem.title = "Mês: \(self.formatDuration(monthStats.totalTime)) | Extras: \(self.formatDuration(monthStats.overtime))"
+        monthItem.isEnabled = false
+        menu.addItem(monthItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
+        // Usar horas extras
+        if self.timeTracker.getTotalOvertimeBalance() > 0 {
+            let useOvertimeItem = NSMenuItem(
+                title: "Usar 1h Extra (Saldo: \(self.formatDuration(self.timeTracker.getTotalOvertimeBalance())))",
+                action: #selector(self.useOvertime),
+                keyEquivalent: ""
+            )
+            useOvertimeItem.target = self
+            menu.addItem(useOvertimeItem)
+            
+            let balance = self.timeTracker.getTotalOvertimeBalance()
+            let balanceItem = NSMenuItem()
+            balanceItem.title = "💰 Saldo: \(self.formatDuration(balance))"
+            balanceItem.isEnabled = false
+            menu.addItem(balanceItem)
+        }
+        
+        // Configurações
+        let configMenuItem = NSMenuItem(title: "⚙️ Configurações", action: #selector(self.showConfigurationsModal), keyEquivalent: "")
+        configMenuItem.target = self
+        menu.addItem(configMenuItem)
+
+        menu.addItem(NSMenuItem.separator())
+        
+        // Sair
+        let quitItem = NSMenuItem(
+            title: "Sair",
+            action: #selector(self.quit),
+            keyEquivalent: "q"
+        )
+        quitItem.target = self
+        menu.addItem(quitItem)
+        
+        // Opção de reset (apenas para correção)
+        let resetItem = NSMenuItem(
+            title: "🔄 Reset Dados",
+            action: #selector(self.resetData),
+            keyEquivalent: ""
+        )
+        resetItem.target = self
+        menu.addItem(resetItem)
+        
+        self.statusBarItem.menu = menu
     }
     
-    @objc private func statusBarButtonClicked() {
-        // Atualizar o menu no momento do clique para garantir dados frescos
-        updateMenu()
+    func updateMenu() {
+        setupMenu()
     }
     
     @objc private func startWork() {
@@ -343,19 +289,18 @@ class MenuBarController: NSObject, ObservableObject {
     }
     
     @objc private func useOvertime() {
-    timeTracker.useOvertime(hours: 1)
-    updateMenu()
-        NSApplication.shared.terminate(nil)
+        timeTracker.useOvertime(hours: 1)
+        updateMenu()
     }
     
-    private func formatDuration(_ timeInterval: TimeInterval) -> String {
-        let hours = Int(timeInterval) / 3600
-        let minutes = Int(timeInterval) % 3600 / 60
-        let seconds = Int(timeInterval) % 60
-        return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+    private func formatDuration(_ seconds: TimeInterval) -> String {
+        let hours = Int(seconds) / 3600
+        let minutes = Int(seconds.truncatingRemainder(dividingBy: 3600)) / 60
+        let remainingSeconds = Int(seconds.truncatingRemainder(dividingBy: 60))
+        
+        return String(format: "%02dh %02dm %02ds", hours, minutes, remainingSeconds)
     }
     
-    // Abater automaticamente o tempo restante da jornada das horas extras
     @objc func abaterTempoRestanteJornada() {
         // Tempo já trabalhado hoje
         let todayStats = timeTracker.getTodayStats()
@@ -365,8 +310,8 @@ class MenuBarController: NSObject, ObservableObject {
         let saldoExtras = timeTracker.getTotalOvertimeBalance()
         if tempoRestante == 0 {
             let alert = NSAlert()
-            alert.messageText = "Jornada já cumprida"
-            alert.informativeText = "Você já cumpriu sua jornada de trabalho de hoje."
+            alert.messageText = "Jornada já foi completada hoje!"
+            alert.informativeText = "Você já trabalhou suas 6 horas obrigatórias."
             alert.alertStyle = .informational
             alert.addButton(withTitle: "OK")
             alert.runModal()
@@ -374,24 +319,24 @@ class MenuBarController: NSObject, ObservableObject {
         }
         if saldoExtras < tempoRestante {
             let alert = NSAlert()
-            alert.messageText = "Saldo insuficiente"
-            alert.informativeText = "Você não possui horas extras suficientes para abater o tempo restante da jornada."
+            alert.messageText = "Saldo de horas extras insuficiente!"
+            alert.informativeText = "Você possui \(formatDuration(saldoExtras)) de saldo, mas precisa de \(formatDuration(tempoRestante)) para completar a jornada."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
             alert.runModal()
             return
         }
-    // Abater do saldo e encerrar jornada
-    timeTracker.useOvertime(hours: tempoRestante / 3600.0)
-    timeTracker.markAbatedToday(seconds: tempoRestante)
-    timeTracker.stopWork()
-    let alert = NSAlert()
-    alert.messageText = "Jornada encerrada com horas extras!"
-    alert.informativeText = String(format: "Foram abatidos %.2f horas extras para completar sua jornada de hoje.", tempoRestante / 3600.0)
-    alert.alertStyle = .informational
-    alert.addButton(withTitle: "OK")
-    alert.runModal()
-    updateMenu()
+        // Abater do saldo e encerrar jornada
+        timeTracker.useOvertime(hours: tempoRestante / 3600.0)
+        timeTracker.markAbatedToday(seconds: tempoRestante)
+        timeTracker.stopWork()
+        let alert = NSAlert()
+        alert.messageText = "Jornada encerrada com horas extras!"
+        alert.informativeText = "Foram utilizadas \(formatDuration(tempoRestante)) do seu banco de horas extras para completar a jornada de hoje."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+        updateMenu()
     }
     
     // Sair do aplicativo
@@ -402,13 +347,12 @@ class MenuBarController: NSObject, ObservableObject {
         NSApplication.shared.terminate(nil)
     }
     
-    // Resetar todos os dados do aplicativo
     @objc func resetData() {
         let alert = NSAlert()
-        alert.messageText = "Reset Completo"
-        alert.informativeText = "Tem certeza que deseja apagar todos os dados? Esta ação não pode ser desfeita."
+        alert.messageText = "Tem certeza de que deseja resetar todos os dados?"
+        alert.informativeText = "Esta ação não pode ser desfeita."
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Reset")
+        alert.addButton(withTitle: "Resetar")
         alert.addButton(withTitle: "Cancelar")
         if alert.runModal() == .alertFirstButtonReturn {
             timeTracker.resetAllData()
@@ -416,9 +360,8 @@ class MenuBarController: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Funções Auxiliares de Formato de Tempo
+    // MARK: - HH:MM Conversion Functions
     
-    /// Converte horas decimais para formato HH:MM
     private func hoursToHHMM(_ hours: Double) -> String {
         let totalMinutes = Int(hours * 60)
         let h = totalMinutes / 60
@@ -426,33 +369,21 @@ class MenuBarController: NSObject, ObservableObject {
         return String(format: "%02d:%02d", h, m)
     }
     
-    /// Converte formato HH:MM para horas decimais
     private func hhmmToHours(_ hhmmString: String) -> Double? {
-        let trimmedString = hhmmString.trimmingCharacters(in: .whitespaces)
-        let components = trimmedString.components(separatedBy: ":")
+        let components = hhmmString.components(separatedBy: ":")
         guard components.count == 2,
               let hours = Int(components[0]),
               let minutes = Int(components[1]),
-              hours >= 0,
-              minutes >= 0 && minutes <= 59 else {
+              hours >= 0, 
+              minutes >= 0, minutes < 60 else {
             return nil
         }
-        let result = Double(hours) + (Double(minutes) / 60.0)
-        return result
+        return Double(hours) + Double(minutes) / 60.0
     }
     
-    /// Valida se uma string está no formato HH:MM
-    private func isValidHHMMFormat(_ text: String) -> Bool {
-        let pattern = "^[0-9]+:[0-5][0-9]$"
-        let regex = try? NSRegularExpression(pattern: pattern)
-        let range = NSRange(text.startIndex..., in: text)
-        return regex?.firstMatch(in: text, options: [], range: range) != nil
-    }
+    // MARK: - Initial Setup
     
-    // MARK: - Configuração Inicial
-    
-    /// Verifica se precisa mostrar a configuração inicial
-    private func checkAndShowInitialSetup() {
+    private func showInitialSetupIfNeeded() {
         // Executar após um pequeno delay para garantir que a interface esteja pronta
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             let isFirstLaunch = self.timeTracker.isFirstLaunch()
@@ -464,18 +395,17 @@ class MenuBarController: NSObject, ObservableObject {
         }
     }
     
-    /// Mostra o assistente de configuração inicial
     private func showInitialSetup() {
         let alert = NSAlert()
-        alert.messageText = "🎉 Bem-vindo ao TimeTracker!"
-        alert.informativeText = "Vamos configurar sua jornada de trabalho. Este assistente aparece apenas na primeira vez."
+        alert.messageText = "🎯 Bem-vindo ao Routine!"
+        alert.informativeText = "Configure sua jornada de trabalho para começar.\n\nDeseja usar a configuração padrão (8h por dia, segunda a sexta) ou personalizar?"
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Configurar")
-        alert.addButton(withTitle: "Usar Padrões")
+        alert.addButton(withTitle: "Personalizar")
+        alert.addButton(withTitle: "Usar Padrão")
         
         let response = alert.runModal()
-        
         if response == .alertFirstButtonReturn {
+            // Usuário escolheu personalizar
             showWorkHoursSetup()
         } else {
             // Usar configurações padrão: 8h de trabalho, sem horas extras
@@ -484,34 +414,28 @@ class MenuBarController: NSObject, ObservableObject {
         }
     }
     
-    /// Configuração de horas de trabalho na primeira execução
     private func showWorkHoursSetup() {
         let alert = NSAlert()
         alert.messageText = "⏰ Configurar Jornada de Trabalho"
-        alert.informativeText = "Quantas horas você trabalha por dia? Use o formato HH:MM (exemplo: 08:00, 06:00, 07:30)"
+        alert.informativeText = "Quantas horas você trabalha por dia?"
         alert.alertStyle = .informational
+        alert.addButton(withTitle: "Continuar")
+        alert.addButton(withTitle: "Cancelar")
         
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 150, height: 24))
         textField.stringValue = "08:00"
         textField.placeholderString = "Ex: 08:00"
         alert.accessoryView = textField
         
-        alert.addButton(withTitle: "Próximo")
-        alert.addButton(withTitle: "Cancelar")
-        
         let response = alert.runModal()
+        
         if response == .alertFirstButtonReturn {
-            let timeText = textField.stringValue
-            if let hours = hhmmToHours(timeText), hours > 0 && hours <= 24 {
-                showWorkDaysSetup(workHours: hours)
+            let timeText = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            if let workHours = hhmmToHours(timeText), workHours > 0 {
+                showOvertimeBalanceSetup(workHours: workHours)
             } else {
-                // Valor inválido, mostrar novamente
-                let errorAlert = NSAlert()
-                errorAlert.messageText = "⚠️ Formato Inválido"
-                errorAlert.informativeText = "Por favor, use o formato HH:MM (exemplo: 08:00, 06:30)."
-                errorAlert.alertStyle = .warning
-                errorAlert.addButton(withTitle: "OK")
-                errorAlert.runModal()
+                showErrorAlert(message: "Por favor, digite um horário válido no formato HH:MM (ex: 08:00)")
                 showWorkHoursSetup()
             }
         } else {
@@ -521,53 +445,29 @@ class MenuBarController: NSObject, ObservableObject {
         }
     }
     
-    /// Configuração de dias de trabalho
-    private func showWorkDaysSetup(workHours: Double) {
+    private func showOvertimeBalanceSetup(workHours: Double) {
         let alert = NSAlert()
-        alert.messageText = "📅 Configurar Dias de Trabalho"
-        alert.informativeText = "Selecione os dias da semana em que você trabalha:"
+        alert.messageText = "💰 Banco de Horas Inicial"
+        alert.informativeText = "Você possui algum saldo de horas extras?\n(Digite 00:00 se não tiver saldo)"
         alert.alertStyle = .informational
-        
-        // Criar view customizada com checkboxes
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 200))
-        
-        let dayNames = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"]
-        let defaultWorkDays = [2, 3, 4, 5, 6] // Segunda a Sexta por padrão
-        var checkboxes: [NSButton] = []
-        
-        for (index, dayName) in dayNames.enumerated() {
-            let checkbox = NSButton(checkboxWithTitle: dayName, target: nil, action: nil)
-            checkbox.frame = NSRect(x: 10, y: 170 - (index * 25), width: 200, height: 20)
-            checkbox.state = defaultWorkDays.contains(index + 1) ? .on : .off
-            containerView.addSubview(checkbox)
-            checkboxes.append(checkbox)
-        }
-        
-        alert.accessoryView = containerView
-        alert.addButton(withTitle: "Próximo")
+        alert.addButton(withTitle: "Continuar")
         alert.addButton(withTitle: "Cancelar")
         
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 150, height: 24))
+        textField.stringValue = "00:00"
+        textField.placeholderString = "Ex: 10:30"
+        alert.accessoryView = textField
+        
         let response = alert.runModal()
+        
         if response == .alertFirstButtonReturn {
-            // Coletar dias selecionados
-            var selectedDays: [Int] = []
-            for (index, checkbox) in checkboxes.enumerated() {
-                if checkbox.state == .on {
-                    selectedDays.append(index + 1) // weekday é 1-based
-                }
-            }
+            let timeText = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             
-            if selectedDays.isEmpty {
-                // Nenhum dia selecionado, mostrar aviso
-                let warningAlert = NSAlert()
-                warningAlert.messageText = "⚠️ Nenhum Dia Selecionado"
-                warningAlert.informativeText = "Você deve selecionar pelo menos um dia de trabalho."
-                warningAlert.alertStyle = .warning
-                warningAlert.addButton(withTitle: "OK")
-                warningAlert.runModal()
-                showWorkDaysSetup(workHours: workHours)
+            if let overtimeBalance = hhmmToHours(timeText), overtimeBalance >= 0 {
+                showWorkDaysSetup(workHours: workHours, overtimeBalance: overtimeBalance)
             } else {
-                showOvertimeSetup(workHours: workHours, workDays: selectedDays)
+                showErrorAlert(message: "Por favor, digite um horário válido no formato HH:MM (ex: 10:30)")
+                showOvertimeBalanceSetup(workHours: workHours)
             }
         } else {
             // Usuário cancelou, usar padrão
@@ -576,196 +476,266 @@ class MenuBarController: NSObject, ObservableObject {
         }
     }
     
-    /// Configuração de saldo inicial de horas extras
-    private func showOvertimeSetup(workHours: Double, workDays: [Int]) {
+    private func showWorkDaysSetup(workHours: Double, overtimeBalance: Double) {
         let alert = NSAlert()
-        alert.messageText = "⚡ Saldo de Horas Extras"
-        alert.informativeText = "Você já tem algum saldo de horas extras? Use o formato HH:MM ou digite 00:00 se não tiver."
-        alert.alertStyle = .informational
-        
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        textField.stringValue = "00:00"
-        textField.placeholderString = "Ex: 10:30"
-        alert.accessoryView = textField
-        
-        alert.addButton(withTitle: "Finalizar")
-        alert.addButton(withTitle: "Pular")
-        
-        let response = alert.runModal()
-        var overtimeBalance = 0.0
-        
-        if response == .alertFirstButtonReturn {
-            let timeText = textField.stringValue
-            if let overtime = hhmmToHours(timeText), overtime >= 0 {
-                overtimeBalance = overtime
-            }
-        }
-        
-        // Salvar configurações
-        timeTracker.setupInitialConfiguration(workHoursPerDay: workHours, initialOvertimeBalance: overtimeBalance, workDays: workDays)
-        showWelcomeMessage()
-    }
-    
-    /// Mensagem de boas-vindas após configuração
-    private func showWelcomeMessage() {
-        let alert = NSAlert()
-        alert.messageText = "✅ Configuração Concluída!"
-        alert.informativeText = """
-        TimeTracker está pronto para uso!
-        
-        📍 Clique no ícone na barra de menu para:
-        • Iniciar/pausar trabalho
-        • Ver estatísticas
-        • Gerenciar horas extras
-        
-        💡 Dica: Use 'Abater Restante da Jornada' para usar horas extras e completar o dia rapidamente.
-        """
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Começar!")
-        alert.runModal()
-        
-        // Atualizar menu após configuração
-        updateMenu()
-    }
-    
-    // MARK: - Edição de Configurações
-    
-    @objc private func editWorkHours() {
-        let alert = NSAlert()
-        alert.messageText = "⏰ Editar Jornada de Trabalho"
-        alert.informativeText = "Quantas horas você trabalha por dia? Use o formato HH:MM"
-        alert.alertStyle = .informational
-        
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        let currentHours = timeTracker.standardWorkHours / 3600.0 // Converter segundos para horas
-        textField.stringValue = hoursToHHMM(currentHours)
-        textField.placeholderString = "Ex: 08:00"
-        alert.accessoryView = textField
-        
-        alert.addButton(withTitle: "Salvar")
-        alert.addButton(withTitle: "Cancelar")
-        
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            let timeText = textField.stringValue
-            if let hours = hhmmToHours(timeText), hours > 0 && hours <= 24 {
-                // Salvar nova jornada de trabalho
-                UserDefaults.standard.set(hours * 3600, forKey: "standardWorkHours") // Converter horas para segundos
-                updateMenu()
-                
-                // Confirmação
-                let successAlert = NSAlert()
-                successAlert.messageText = "✅ Configuração Atualizada"
-                successAlert.informativeText = "Jornada de trabalho atualizada para \(timeText)."
-                successAlert.alertStyle = .informational
-                successAlert.addButton(withTitle: "OK")
-                successAlert.runModal()
-            } else {
-                // Valor inválido
-                let errorAlert = NSAlert()
-                errorAlert.messageText = "⚠️ Formato Inválido"
-                errorAlert.informativeText = "Por favor, use o formato HH:MM (exemplo: 08:00, 06:30)."
-                errorAlert.alertStyle = .warning
-                errorAlert.addButton(withTitle: "OK")
-                errorAlert.runModal()
-            }
-        }
-    }
-    
-    @objc private func editOvertimeBalance() {
-        let alert = NSAlert()
-        alert.messageText = "💰 Editar Banco de Horas"
-        alert.informativeText = "Qual o seu saldo atual de horas extras? Use o formato HH:MM"
-        alert.alertStyle = .informational
-        
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        let currentBalance = timeTracker.getTotalOvertimeBalance() / 3600.0 // Converter segundos para horas
-        textField.stringValue = hoursToHHMM(currentBalance)
-        textField.placeholderString = "Ex: 10:30"
-        alert.accessoryView = textField
-        
-        alert.addButton(withTitle: "Salvar")
-        alert.addButton(withTitle: "Cancelar")
-        
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            let timeText = textField.stringValue
-            if let balance = hhmmToHours(timeText), balance >= 0 {
-                // Salvar novo saldo
-                timeTracker.setInitialOvertimeBalance(balance)
-                updateMenu()
-                
-                // Confirmação
-                let successAlert = NSAlert()
-                successAlert.messageText = "✅ Saldo Atualizado"
-                successAlert.informativeText = "Saldo de horas extras atualizado para \(timeText)."
-                successAlert.alertStyle = .informational
-                successAlert.addButton(withTitle: "OK")
-                successAlert.runModal()
-            } else {
-                // Valor inválido
-                let errorAlert = NSAlert()
-                errorAlert.messageText = "⚠️ Formato Inválido"
-                errorAlert.informativeText = "Por favor, use o formato HH:MM (exemplo: 10:30, 05:15)."
-                errorAlert.alertStyle = .warning
-                errorAlert.addButton(withTitle: "OK")
-                errorAlert.runModal()
-            }
-        }
-    }
-    
-    @objc private func editWorkDays() {
-        let alert = NSAlert()
-        alert.messageText = "📅 Editar Dias de Trabalho"
+        alert.messageText = "📅 Dias de Trabalho"
         alert.informativeText = "Selecione os dias da semana em que você trabalha:"
         alert.alertStyle = .informational
+        alert.addButton(withTitle: "Finalizar")
+        alert.addButton(withTitle: "Cancelar")
         
-        // Criar view customizada com checkboxes
-        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 200))
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
         
         let dayNames = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"]
-        let currentWorkDays = timeTracker.workDays
         var checkboxes: [NSButton] = []
         
         for (index, dayName) in dayNames.enumerated() {
             let checkbox = NSButton(checkboxWithTitle: dayName, target: nil, action: nil)
-            checkbox.frame = NSRect(x: 10, y: 170 - (index * 25), width: 200, height: 20)
-            checkbox.state = currentWorkDays.contains(index + 1) ? .on : .off
+            let row = index % 4
+            let col = index / 4
+            checkbox.frame = NSRect(x: col * 150, y: 90 - (row * 25), width: 140, height: 20)
+            
+            // Marcar segunda a sexta como padrão
+            if index >= 1 && index <= 5 {
+                checkbox.state = .on
+            }
+            
             containerView.addSubview(checkbox)
             checkboxes.append(checkbox)
         }
         
         alert.accessoryView = containerView
-        alert.addButton(withTitle: "Salvar")
-        alert.addButton(withTitle: "Cancelar")
         
         let response = alert.runModal()
+        
         if response == .alertFirstButtonReturn {
-            // Coletar dias selecionados
-            var selectedDays: [Int] = []
-            for (index, checkbox) in checkboxes.enumerated() {
-                if checkbox.state == .on {
-                    selectedDays.append(index + 1) // weekday é 1-based
-                }
+            let selectedDays = checkboxes.enumerated().compactMap { index, checkbox in
+                checkbox.state == .on ? index + 1 : nil // +1 porque weekday começa em 1
             }
             
             if selectedDays.isEmpty {
-                // Nenhum dia selecionado, mostrar aviso
-                let warningAlert = NSAlert()
-                warningAlert.messageText = "⚠️ Nenhum Dia Selecionado"
-                warningAlert.informativeText = "Você deve selecionar pelo menos um dia de trabalho."
-                warningAlert.alertStyle = .warning
-                warningAlert.addButton(withTitle: "OK")
-                warningAlert.runModal()
+                showErrorAlert(message: "Selecione pelo menos um dia de trabalho.")
+                showWorkDaysSetup(workHours: workHours, overtimeBalance: overtimeBalance)
             } else {
-                // Salvar novos dias de trabalho
+                // Salvar configurações
+                timeTracker.setupInitialConfiguration(workHoursPerDay: workHours, initialOvertimeBalance: overtimeBalance, workDays: selectedDays)
+                showWelcomeMessage()
+            }
+        } else {
+            // Usuário cancelou, usar padrão
+            timeTracker.setupInitialConfiguration(workHoursPerDay: 8.0, initialOvertimeBalance: 0.0)
+            showWelcomeMessage()
+        }
+    }
+    
+    private func showWelcomeMessage() {
+        let alert = NSAlert()
+        alert.messageText = "✅ Configuração Concluída!"
+        alert.informativeText = "O Routine está pronto para uso. Você pode acessar as configurações a qualquer momento através do menu."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Começar")
+        alert.runModal()
+        
+        updateMenu()
+    }
+    
+    private func showErrorAlert(message: String) {
+        let alert = NSAlert()
+        alert.messageText = "❌ Erro"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+    
+    // MARK: - Configuration Methods
+    
+    @objc private func showConfigurationsModal() {
+        let alert = NSAlert()
+        alert.messageText = "⚙️ Configurações do Routine"
+        alert.informativeText = "Personalize sua jornada de trabalho"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "💾 Salvar")
+        alert.addButton(withTitle: "❌ Cancelar")
+        
+        // Container principal com mais altura
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 380))
+        
+        // ===== SEÇÃO 1: JORNADA DE TRABALHO =====
+        // Título da seção
+        let workSectionTitle = NSTextField(labelWithString: "🕒 JORNADA DE TRABALHO")
+        workSectionTitle.font = NSFont.boldSystemFont(ofSize: 13)
+        workSectionTitle.frame = NSRect(x: 20, y: 350, width: 200, height: 20)
+        containerView.addSubview(workSectionTitle)
+        
+        // Linha separadora
+        let workSeparator = NSBox()
+        workSeparator.boxType = .separator
+        workSeparator.frame = NSRect(x: 20, y: 345, width: 440, height: 1)
+        containerView.addSubview(workSeparator)
+        
+        // Campo de jornada diária
+        let workHoursLabel = NSTextField(labelWithString: "Horas por dia:")
+        workHoursLabel.frame = NSRect(x: 30, y: 315, width: 100, height: 17)
+        containerView.addSubview(workHoursLabel)
+        
+        let workHoursField = NSTextField(frame: NSRect(x: 140, y: 312, width: 80, height: 24))
+        let currentHours = timeTracker.standardWorkHours / 3600.0
+        workHoursField.stringValue = hoursToHHMM(currentHours)
+        workHoursField.placeholderString = "08:00"
+        workHoursField.alignment = .center
+        containerView.addSubview(workHoursField)
+        
+        let workHoursHint = NSTextField(labelWithString: "(formato HH:MM)")
+        workHoursHint.font = NSFont.systemFont(ofSize: 10)
+        workHoursHint.textColor = .secondaryLabelColor
+        workHoursHint.frame = NSRect(x: 230, y: 318, width: 100, height: 12)
+        containerView.addSubview(workHoursHint)
+        
+        // ===== SEÇÃO 2: BANCO DE HORAS =====
+        // Título da seção
+        let overtimeSectionTitle = NSTextField(labelWithString: "💰 BANCO DE HORAS")
+        overtimeSectionTitle.font = NSFont.boldSystemFont(ofSize: 13)
+        overtimeSectionTitle.frame = NSRect(x: 20, y: 280, width: 200, height: 20)
+        containerView.addSubview(overtimeSectionTitle)
+        
+        // Linha separadora
+        let overtimeSeparator = NSBox()
+        overtimeSeparator.boxType = .separator
+        overtimeSeparator.frame = NSRect(x: 20, y: 275, width: 440, height: 1)
+        containerView.addSubview(overtimeSeparator)
+        
+        // Campo de banco de horas
+        let overtimeLabel = NSTextField(labelWithString: "Saldo atual:")
+        overtimeLabel.frame = NSRect(x: 30, y: 245, width: 100, height: 17)
+        containerView.addSubview(overtimeLabel)
+        
+        let overtimeField = NSTextField(frame: NSRect(x: 140, y: 242, width: 80, height: 24))
+        let currentBalance = timeTracker.getTotalOvertimeBalance() / 3600.0
+        overtimeField.stringValue = hoursToHHMM(currentBalance)
+        overtimeField.placeholderString = "00:00"
+        overtimeField.alignment = .center
+        containerView.addSubview(overtimeField)
+        
+        let overtimeHint = NSTextField(labelWithString: "(formato HH:MM)")
+        overtimeHint.font = NSFont.systemFont(ofSize: 10)
+        overtimeHint.textColor = .secondaryLabelColor
+        overtimeHint.frame = NSRect(x: 230, y: 248, width: 100, height: 12)
+        containerView.addSubview(overtimeHint)
+        
+        // ===== SEÇÃO 3: DIAS DE TRABALHO =====
+        // Título da seção
+        let daysSectionTitle = NSTextField(labelWithString: "📅 DIAS DE TRABALHO")
+        daysSectionTitle.font = NSFont.boldSystemFont(ofSize: 13)
+        daysSectionTitle.frame = NSRect(x: 20, y: 210, width: 200, height: 20)
+        containerView.addSubview(daysSectionTitle)
+        
+        // Linha separadora
+        let daysSeparator = NSBox()
+        daysSeparator.boxType = .separator
+        daysSeparator.frame = NSRect(x: 20, y: 205, width: 440, height: 1)
+        containerView.addSubview(daysSeparator)
+        
+        // Checkboxes para dias da semana em layout mais organizado
+        let dayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
+        let currentWorkDays = timeTracker.workDays
+        var dayCheckboxes: [NSButton] = []
+        
+        // Container para os checkboxes
+        let checkboxContainer = NSView(frame: NSRect(x: 30, y: 160, width: 420, height: 40))
+        containerView.addSubview(checkboxContainer)
+        
+        for (index, dayName) in dayNames.enumerated() {
+            let checkbox = NSButton(checkboxWithTitle: dayName, target: nil, action: nil)
+            checkbox.frame = NSRect(x: index * 58, y: 10, width: 55, height: 20)
+            checkbox.font = NSFont.systemFont(ofSize: 11)
+            
+            if currentWorkDays.contains(index + 1) {
+                checkbox.state = .on
+            }
+            
+            checkboxContainer.addSubview(checkbox)
+            dayCheckboxes.append(checkbox)
+        }
+        
+        // ===== SEÇÃO 4: RESUMO ATUAL =====
+        // Título da seção
+        let currentSectionTitle = NSTextField(labelWithString: "📋 CONFIGURAÇÃO ATUAL")
+        currentSectionTitle.font = NSFont.boldSystemFont(ofSize: 13)
+        currentSectionTitle.frame = NSRect(x: 20, y: 130, width: 200, height: 20)
+        containerView.addSubview(currentSectionTitle)
+        
+        // Linha separadora
+        let currentSeparator = NSBox()
+        currentSeparator.boxType = .separator
+        currentSeparator.frame = NSRect(x: 20, y: 125, width: 440, height: 1)
+        containerView.addSubview(currentSeparator)
+        
+        // Container para o resumo com fundo diferenciado
+        let summaryContainer = NSView(frame: NSRect(x: 30, y: 30, width: 420, height: 90))
+        summaryContainer.wantsLayer = true
+        summaryContainer.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        summaryContainer.layer?.cornerRadius = 8
+        containerView.addSubview(summaryContainer)
+        
+        let currentConfigText = NSTextField(wrappingLabelWithString: """
+        📊 Jornada: \(hoursToHHMM(currentHours))
+        💰 Banco: \(hoursToHHMM(currentBalance))
+        📅 Dias: \(timeTracker.workDaysDescription())
+        """)
+        currentConfigText.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        currentConfigText.frame = NSRect(x: 15, y: 15, width: 390, height: 60)
+        currentConfigText.isEditable = false
+        currentConfigText.isBordered = false
+        currentConfigText.backgroundColor = .clear
+        summaryContainer.addSubview(currentConfigText)
+        
+        alert.accessoryView = containerView
+        
+        let response = alert.runModal()
+        
+        if response == .alertFirstButtonReturn {
+            var hasErrors = false
+            var errorMessage = "Corrija os seguintes erros:\n"
+            
+            // Validar e aplicar jornada de trabalho
+            let workText = workHoursField.stringValue
+            if let workHours = hhmmToHours(workText), workHours > 0 {
+                timeTracker.standardWorkHours = workHours * 3600.0
+            } else {
+                hasErrors = true
+                errorMessage += "• Jornada diária deve ser um horário válido (ex: 08:00)\n"
+            }
+            
+            // Validar e aplicar banco de horas
+            let overtimeText = overtimeField.stringValue
+            if let overtime = hhmmToHours(overtimeText), overtime >= 0 {
+                timeTracker.setInitialOvertimeBalance(overtime)
+            } else {
+                hasErrors = true
+                errorMessage += "• Banco de horas deve ser um horário válido (ex: 10:30)\n"
+            }
+            
+            // Validar e aplicar dias de trabalho
+            let selectedDays = dayCheckboxes.enumerated().compactMap { index, checkbox in
+                checkbox.state == .on ? index + 1 : nil
+            }
+            
+            if selectedDays.isEmpty {
+                hasErrors = true
+                errorMessage += "• Selecione pelo menos um dia de trabalho\n"
+            } else {
                 timeTracker.setWorkDays(selectedDays)
+            }
+            
+            if hasErrors {
+                showErrorAlert(message: errorMessage)
+                showConfigurationsModal() // Reabrir modal
+            } else {
                 updateMenu()
-                
-                // Confirmação
                 let successAlert = NSAlert()
-                successAlert.messageText = "✅ Dias de Trabalho Atualizados"
-                successAlert.informativeText = "Configuração atualizada: \(timeTracker.workDaysDescription())"
+                successAlert.messageText = "✅ Configurações Salvas"
+                successAlert.informativeText = "Todas as configurações foram atualizadas com sucesso!"
                 successAlert.alertStyle = .informational
                 successAlert.addButton(withTitle: "OK")
                 successAlert.runModal()
