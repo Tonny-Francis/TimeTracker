@@ -133,3 +133,7 @@ Temporary Items
 # Temporary files
 *.tmp
 *.temp
+
+release
+
+*.dmg
