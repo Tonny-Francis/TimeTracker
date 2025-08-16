@@ -61,6 +61,8 @@ cat > "${CONTENTS_DIR}/Info.plist" << EOF
     <string>APPL</string>
     <key>CFBundleSignature</key>
     <string>????</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>LSMinimumSystemVersion</key>
     <string>10.15</string>
     <key>LSUIElement</key>
@@ -75,12 +77,46 @@ cat > "${CONTENTS_DIR}/Info.plist" << EOF
 </plist>
 EOF
 
-# Criar ícone simples (texto)
-echo "🎨 Criando ícone..."
-cat > "${RESOURCES_DIR}/icon.txt" << EOF
+# Criar ícone a partir do PNG
+echo "🎨 Convertendo ícone PNG para ICNS..."
+if [ -f "assets/icon.png" ]; then
+    # Criar iconset temporário
+    mkdir -p "${RESOURCES_DIR}/AppIcon.iconset"
+    
+    # Verificar se sips está disponível para conversão
+    if command -v sips &> /dev/null; then
+        # Gerar diferentes tamanhos para o iconset
+        sips -z 16 16 "assets/icon.png" --out "${RESOURCES_DIR}/AppIcon.iconset/icon_16x16.png"
+        sips -z 32 32 "assets/icon.png" --out "${RESOURCES_DIR}/AppIcon.iconset/icon_16x16@2x.png"
+        sips -z 32 32 "assets/icon.png" --out "${RESOURCES_DIR}/AppIcon.iconset/icon_32x32.png"
+        sips -z 64 64 "assets/icon.png" --out "${RESOURCES_DIR}/AppIcon.iconset/icon_32x32@2x.png"
+        sips -z 128 128 "assets/icon.png" --out "${RESOURCES_DIR}/AppIcon.iconset/icon_128x128.png"
+        sips -z 256 256 "assets/icon.png" --out "${RESOURCES_DIR}/AppIcon.iconset/icon_128x128@2x.png"
+        sips -z 256 256 "assets/icon.png" --out "${RESOURCES_DIR}/AppIcon.iconset/icon_256x256.png"
+        sips -z 512 512 "assets/icon.png" --out "${RESOURCES_DIR}/AppIcon.iconset/icon_256x256@2x.png"
+        sips -z 512 512 "assets/icon.png" --out "${RESOURCES_DIR}/AppIcon.iconset/icon_512x512.png"
+        sips -z 1024 1024 "assets/icon.png" --out "${RESOURCES_DIR}/AppIcon.iconset/icon_512x512@2x.png"
+        
+        # Converter iconset para icns
+        if command -v iconutil &> /dev/null; then
+            iconutil -c icns "${RESOURCES_DIR}/AppIcon.iconset" -o "${RESOURCES_DIR}/AppIcon.icns"
+            rm -rf "${RESOURCES_DIR}/AppIcon.iconset"
+            echo "✅ Ícone ICNS criado com sucesso!"
+        else
+            echo "⚠️  iconutil não encontrado, usando PNG original"
+            cp "assets/icon.png" "${RESOURCES_DIR}/AppIcon.png"
+        fi
+    else
+        echo "⚠️  sips não encontrado, usando PNG original"
+        cp "assets/icon.png" "${RESOURCES_DIR}/AppIcon.png"
+    fi
+else
+    echo "⚠️  Arquivo assets/icon.png não encontrado, criando ícone padrão"
+    cat > "${RESOURCES_DIR}/icon.txt" << EOF
 TimeTracker App Icon
-Para adicionar um ícone real, substitua este arquivo por um arquivo .icns
+Para adicionar um ícone real, adicione um arquivo assets/icon.png
 EOF
+fi
 
 # Tornar executável
 chmod +x "${MACOS_DIR}/${APP_NAME}"
@@ -88,23 +124,21 @@ chmod +x "${MACOS_DIR}/${APP_NAME}"
 # Criar DMG temporário
 echo "💿 Criando DMG..."
 TEMP_DMG="${DMG_NAME}_temp.dmg"
-hdiutil create -size 50m -fs HFS+ -volname "${APP_NAME}" "${TEMP_DMG}"
+DMG_DIR="dmg_temp"
 
-# Montar DMG temporário
-echo "📦 Montando DMG temporário..."
-MOUNT_POINT="/Volumes/${APP_NAME}"
-hdiutil attach "${TEMP_DMG}"
+# Criar diretório temporário para o DMG
+mkdir -p "${DMG_DIR}"
 
-# Copiar aplicação para o DMG
-echo "📋 Copiando aplicação para o DMG..."
-cp -R "${APP_DIR}" "${MOUNT_POINT}/"
+# Copiar aplicação para o diretório temporário
+echo "📋 Preparando conteúdo do DMG..."
+cp -R "${APP_DIR}" "${DMG_DIR}/"
 
 # Criar link para Applications
 echo "🔗 Criando link para Applications..."
-ln -s /Applications "${MOUNT_POINT}/Applications"
+ln -s /Applications "${DMG_DIR}/Applications"
 
-# Criar arquivo README no DMG
-cat > "${MOUNT_POINT}/README.txt" << EOF
+# Criar arquivo README no diretório temporário
+cat > "${DMG_DIR}/README.txt" << EOF
 TimeTracker v${APP_VERSION}
 
 INSTALAÇÃO:
@@ -128,9 +162,9 @@ RECURSOS:
 Para suporte: https://github.com/Tonny-Francis/TimeTracker
 EOF
 
-# Desmontar DMG temporário
-echo "📤 Desmontando DMG temporário..."
-hdiutil detach "${MOUNT_POINT}"
+# Criar DMG a partir do diretório
+echo "� Criando DMG a partir do diretório..."
+hdiutil create -srcfolder "${DMG_DIR}" -volname "${APP_NAME}" "${TEMP_DMG}"
 
 # Converter para DMG final comprimido
 echo "🗜️ Comprimindo DMG final..."
@@ -139,6 +173,7 @@ hdiutil convert "${TEMP_DMG}" -format UDZO -o "${DMG_NAME}.dmg"
 # Limpar arquivos temporários
 echo "🧹 Limpando arquivos temporários..."
 rm "${TEMP_DMG}"
+rm -rf "${DMG_DIR}"
 
 echo "✅ DMG criado com sucesso: ${DMG_NAME}.dmg"
 echo ""
