@@ -398,22 +398,6 @@ class TimeTracker: ObservableObject {
         objectWillChange.send()
     }
     
-    // MARK: - Import Historical Overtime
-    
-    func importHistoricalOvertime() {
-        // Total de horas extras calculadas do seu bloco de notas
-        let totalHistoricalOvertime = 25.48 // 7.3 + 4.33 + 6.0 + 1.05 + 4.0 + 2.8
-        
-        // Salvar diretamente como saldo de horas extras
-        let currentBalance = userDefaults.double(forKey: "historicalOvertimeBalance")
-        userDefaults.set(currentBalance + totalHistoricalOvertime, forKey: "historicalOvertimeBalance")
-        
-        // Marcar que a importação foi feita
-        userDefaults.set(true, forKey: "historicalOvertimeImported")
-        
-        objectWillChange.send()
-    }
-    
     func getTotalOvertimeBalance() -> TimeInterval {
         let usages = loadOvertimeUsages()
         let totalUsed = usages.reduce(0) { $0 + $1.hoursUsed }
@@ -422,17 +406,13 @@ class TimeTracker: ObservableObject {
         let allTimeStats = getAllTimeStats()
         let currentOvertime = allTimeStats.overtime
         
-        // Adicionar saldo histórico importado
-        let historicalBalance = userDefaults.double(forKey: "historicalOvertimeBalance")
+        // Adicionar saldo inicial configurado pelo usuário
+        let initialBalance = userDefaults.double(forKey: "initialOvertimeBalance")
         
-        // Total = horas extras atuais + histórico - horas usadas
-        let totalBalance = (currentOvertime / 3600) + historicalBalance - totalUsed
+        // Total = horas extras atuais + saldo inicial - horas usadas
+        let totalBalance = (currentOvertime / 3600) + initialBalance - totalUsed
         
         return max(0, totalBalance * 3600) // Converter para segundos
-    }
-    
-    func hasImportedHistoricalOvertime() -> Bool {
-        return userDefaults.bool(forKey: "historicalOvertimeImported")
     }
     
     // MARK: - Reset Data (for debugging)
@@ -440,14 +420,13 @@ class TimeTracker: ObservableObject {
     func resetAllData() {
         userDefaults.removeObject(forKey: "workSessions")
         userDefaults.removeObject(forKey: "overtimeUsages")
-        userDefaults.removeObject(forKey: "historicalOvertimeBalance")
-        userDefaults.removeObject(forKey: "historicalOvertimeImported")
+        userDefaults.removeObject(forKey: "initialOvertimeBalance")
+        userDefaults.removeObject(forKey: "standardWorkHours")
         userDefaults.removeObject(forKey: "isWorking")
         userDefaults.removeObject(forKey: "isPaused")
         userDefaults.removeObject(forKey: "currentSessionStart")
         userDefaults.removeObject(forKey: "currentPauseStart")
         userDefaults.removeObject(forKey: "totalPauseTime")
-        userDefaults.removeObject(forKey: "workHoursPerDay")
         userDefaults.removeObject(forKey: firstLaunchKey)
         userDefaults.removeObject(forKey: initialSetupCompletedKey)
         userDefaults.removeObject(forKey: lastAbateKey)

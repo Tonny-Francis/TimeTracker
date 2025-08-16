@@ -253,19 +253,6 @@ class MenuBarController: NSObject, ObservableObject {
             
             menu.addItem(NSMenuItem.separator())
             
-            // Importar dados históricos (apenas se ainda não foi feito)
-            if !self.timeTracker.hasImportedHistoricalOvertime() {
-                let importItem = NSMenuItem(
-                    title: "📥 Importar Horas Extras Históricas",
-                    action: #selector(self.importHistoricalData),
-                    keyEquivalent: ""
-                )
-                importItem.target = self
-                menu.addItem(importItem)
-                
-                menu.addItem(NSMenuItem.separator())
-            }
-            
             // Usar horas extras
             if self.timeTracker.getTotalOvertimeBalance() > 0 {
                 let useOvertimeItem = NSMenuItem(
@@ -351,18 +338,6 @@ class MenuBarController: NSObject, ObservableObject {
     timeTracker.useOvertime(hours: 1)
     updateMenu()
         NSApplication.shared.terminate(nil)
-    }
-    
-    // Importar dados históricos de horas extras
-    @objc func importHistoricalData() {
-        timeTracker.importHistoricalOvertime()
-        let alert = NSAlert()
-        alert.messageText = "Dados Importados!"
-        alert.informativeText = "Suas horas extras históricas foram importadas com sucesso:\n\n• Dia 28/7: 7h18\n• Dia 02/8: 4h20\n• Dia NN: 6h\n• Dia 07/8: 1h3\n• Dia 09/8: 4h\n• Dia 11/8: 2h48\n\nTotal: ~25,5 horas extras adicionadas ao seu saldo."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-        updateMenu()
     }
     
     private func formatDuration(_ timeInterval: TimeInterval) -> String {
