@@ -408,6 +408,44 @@ class MenuBarController: NSObject, ObservableObject {
         }
     }
     
+    // MARK: - Funções Auxiliares de Formato de Tempo
+    
+    /// Converte horas decimais para formato HH:MM
+    private func hoursToHHMM(_ hours: Double) -> String {
+        let totalMinutes = Int(hours * 60)
+        let h = totalMinutes / 60
+        let m = totalMinutes % 60
+        return String(format: "%02d:%02d", h, m)
+    }
+    
+    /// Converte formato HH:MM para horas decimais
+    private func hhmmToHours(_ hhmmString: String) -> Double? {
+        let trimmedString = hhmmString.trimmingCharacters(in: .whitespaces)
+        let components = trimmedString.components(separatedBy: ":")
+        guard components.count == 2,
+              let hours = Int(components[0]),
+              let minutes = Int(components[1]),
+              hours >= 0,
+              minutes >= 0 && minutes <= 59 else {
+            print("DEBUG: Falha na conversão de '\(hhmmString)' (trimmed: '\(trimmedString)')")
+            if components.count != 2 {
+                print("DEBUG: Número de componentes incorreto: \(components.count)")
+            }
+            return nil
+        }
+        let result = Double(hours) + (Double(minutes) / 60.0)
+        print("DEBUG: Converteu '\(trimmedString)' para \(result) horas")
+        return result
+    }
+    
+    /// Valida se uma string está no formato HH:MM
+    private func isValidHHMMFormat(_ text: String) -> Bool {
+        let pattern = "^[0-9]+:[0-5][0-9]$"
+        let regex = try? NSRegularExpression(pattern: pattern)
+        let range = NSRange(text.startIndex..., in: text)
+        return regex?.firstMatch(in: text, options: [], range: range) != nil
+    }
+    
     // MARK: - Configuração Inicial
     
     /// Verifica se precisa mostrar a configuração inicial
@@ -447,12 +485,12 @@ class MenuBarController: NSObject, ObservableObject {
     private func showWorkHoursSetup() {
         let alert = NSAlert()
         alert.messageText = "⏰ Configurar Jornada de Trabalho"
-        alert.informativeText = "Quantas horas você trabalha por dia? (exemplo: 8, 6, 7.5)"
+        alert.informativeText = "Quantas horas você trabalha por dia? Use o formato HH:MM (exemplo: 08:00, 06:00, 07:30)"
         alert.alertStyle = .informational
         
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        textField.stringValue = "8"
-        textField.placeholderString = "Ex: 8.0"
+        textField.stringValue = "08:00"
+        textField.placeholderString = "Ex: 08:00"
         alert.accessoryView = textField
         
         alert.addButton(withTitle: "Próximo")
@@ -460,14 +498,14 @@ class MenuBarController: NSObject, ObservableObject {
         
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
-            let hoursText = textField.stringValue
-            if let hours = Double(hoursText), hours > 0 && hours <= 24 {
+            let timeText = textField.stringValue
+            if let hours = hhmmToHours(timeText), hours > 0 && hours <= 24 {
                 showOvertimeSetup(workHours: hours)
             } else {
                 // Valor inválido, mostrar novamente
                 let errorAlert = NSAlert()
-                errorAlert.messageText = "⚠️ Valor Inválido"
-                errorAlert.informativeText = "Por favor, digite um valor válido entre 1 e 24 horas."
+                errorAlert.messageText = "⚠️ Formato Inválido"
+                errorAlert.informativeText = "Por favor, use o formato HH:MM (exemplo: 08:00, 06:30)."
                 errorAlert.alertStyle = .warning
                 errorAlert.addButton(withTitle: "OK")
                 errorAlert.runModal()
@@ -484,12 +522,12 @@ class MenuBarController: NSObject, ObservableObject {
     private func showOvertimeSetup(workHours: Double) {
         let alert = NSAlert()
         alert.messageText = "⚡ Saldo de Horas Extras"
-        alert.informativeText = "Você já tem algum saldo de horas extras? Digite o valor ou deixe 0 se não tiver."
+        alert.informativeText = "Você já tem algum saldo de horas extras? Use o formato HH:MM ou digite 00:00 se não tiver."
         alert.alertStyle = .informational
         
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
-        textField.stringValue = "0"
-        textField.placeholderString = "Ex: 10.5"
+        textField.stringValue = "00:00"
+        textField.placeholderString = "Ex: 10:30"
         alert.accessoryView = textField
         
         alert.addButton(withTitle: "Finalizar")
@@ -499,8 +537,8 @@ class MenuBarController: NSObject, ObservableObject {
         var overtimeBalance = 0.0
         
         if response == .alertFirstButtonReturn {
-            let overtimeText = textField.stringValue
-            if let overtime = Double(overtimeText), overtime >= 0 {
+            let timeText = textField.stringValue
+            if let overtime = hhmmToHours(timeText), overtime >= 0 {
                 overtimeBalance = overtime
             }
         }
@@ -537,13 +575,13 @@ class MenuBarController: NSObject, ObservableObject {
     @objc private func editWorkHours() {
         let alert = NSAlert()
         alert.messageText = "⏰ Editar Jornada de Trabalho"
-        alert.informativeText = "Quantas horas você trabalha por dia?"
+        alert.informativeText = "Quantas horas você trabalha por dia? Use o formato HH:MM"
         alert.alertStyle = .informational
         
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         let currentHours = timeTracker.standardWorkHours / 3600.0 // Converter segundos para horas
-        textField.stringValue = String(format: "%.1f", currentHours)
-        textField.placeholderString = "Ex: 8.0"
+        textField.stringValue = hoursToHHMM(currentHours)
+        textField.placeholderString = "Ex: 08:00"
         alert.accessoryView = textField
         
         alert.addButton(withTitle: "Salvar")
@@ -551,8 +589,8 @@ class MenuBarController: NSObject, ObservableObject {
         
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
-            let hoursText = textField.stringValue
-            if let hours = Double(hoursText), hours > 0 && hours <= 24 {
+            let timeText = textField.stringValue
+            if let hours = hhmmToHours(timeText), hours > 0 && hours <= 24 {
                 // Salvar nova jornada de trabalho
                 UserDefaults.standard.set(hours * 3600, forKey: "standardWorkHours") // Converter horas para segundos
                 updateMenu()
@@ -560,15 +598,15 @@ class MenuBarController: NSObject, ObservableObject {
                 // Confirmação
                 let successAlert = NSAlert()
                 successAlert.messageText = "✅ Configuração Atualizada"
-                successAlert.informativeText = "Jornada de trabalho atualizada para \(String(format: "%.1f", hours)) horas por dia."
+                successAlert.informativeText = "Jornada de trabalho atualizada para \(timeText)."
                 successAlert.alertStyle = .informational
                 successAlert.addButton(withTitle: "OK")
                 successAlert.runModal()
             } else {
                 // Valor inválido
                 let errorAlert = NSAlert()
-                errorAlert.messageText = "⚠️ Valor Inválido"
-                errorAlert.informativeText = "Por favor, digite um valor válido entre 1 e 24 horas."
+                errorAlert.messageText = "⚠️ Formato Inválido"
+                errorAlert.informativeText = "Por favor, use o formato HH:MM (exemplo: 08:00, 06:30)."
                 errorAlert.alertStyle = .warning
                 errorAlert.addButton(withTitle: "OK")
                 errorAlert.runModal()
@@ -579,13 +617,13 @@ class MenuBarController: NSObject, ObservableObject {
     @objc private func editOvertimeBalance() {
         let alert = NSAlert()
         alert.messageText = "💰 Editar Banco de Horas"
-        alert.informativeText = "Qual o seu saldo atual de horas extras?"
+        alert.informativeText = "Qual o seu saldo atual de horas extras? Use o formato HH:MM"
         alert.alertStyle = .informational
         
         let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         let currentBalance = timeTracker.getTotalOvertimeBalance() / 3600.0 // Converter segundos para horas
-        textField.stringValue = String(format: "%.1f", currentBalance)
-        textField.placeholderString = "Ex: 10.5"
+        textField.stringValue = hoursToHHMM(currentBalance)
+        textField.placeholderString = "Ex: 10:30"
         alert.accessoryView = textField
         
         alert.addButton(withTitle: "Salvar")
@@ -593,8 +631,8 @@ class MenuBarController: NSObject, ObservableObject {
         
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
-            let balanceText = textField.stringValue
-            if let balance = Double(balanceText), balance >= 0 {
+            let timeText = textField.stringValue
+            if let balance = hhmmToHours(timeText), balance >= 0 {
                 // Salvar novo saldo
                 timeTracker.setInitialOvertimeBalance(balance)
                 updateMenu()
@@ -602,15 +640,15 @@ class MenuBarController: NSObject, ObservableObject {
                 // Confirmação
                 let successAlert = NSAlert()
                 successAlert.messageText = "✅ Saldo Atualizado"
-                successAlert.informativeText = "Saldo de horas extras atualizado para \(String(format: "%.1f", balance)) horas."
+                successAlert.informativeText = "Saldo de horas extras atualizado para \(timeText)."
                 successAlert.alertStyle = .informational
                 successAlert.addButton(withTitle: "OK")
                 successAlert.runModal()
             } else {
                 // Valor inválido
                 let errorAlert = NSAlert()
-                errorAlert.messageText = "⚠️ Valor Inválido"
-                errorAlert.informativeText = "Por favor, digite um valor válido (0 ou maior)."
+                errorAlert.messageText = "⚠️ Formato Inválido"
+                errorAlert.informativeText = "Por favor, use o formato HH:MM (exemplo: 10:30, 05:15)."
                 errorAlert.alertStyle = .warning
                 errorAlert.addButton(withTitle: "OK")
                 errorAlert.runModal()
