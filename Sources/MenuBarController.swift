@@ -371,9 +371,14 @@ class MenuBarController: ObservableObject {
         alert.addButton(withTitle: "❌ NÃO, Cancelar")
         alert.addButton(withTitle: "� SIM, Resetar Tudo")
         
-        // Centralizar o alert
-        if let window = NSApplication.shared.mainWindow ?? NSApplication.shared.windows.first {
-            alert.beginSheetModal(for: window) { response in
+        // Usar DispatchQueue para fechar modal atual e abrir novo
+        DispatchQueue.main.async {
+            // Parar qualquer modal que esteja rodando atualmente  
+            NSApplication.shared.stopModal(withCode: .alertSecondButtonReturn)
+            
+            // Pequeno delay para garantir fechamento
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                let response = alert.runModal()
                 if response == .alertSecondButtonReturn {
                     // Executar reset diretamente
                     self.timeTracker.resetAllData()
@@ -381,17 +386,12 @@ class MenuBarController: ObservableObject {
                     
                     // Mostrar confirmação de sucesso
                     self.showResetSuccessAlert()
+                } else {
+                    // Usuário cancelou - reabrir modal de configurações
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        self.showConfigurationsModal()
+                    }
                 }
-            }
-        } else {
-            let response = alert.runModal()
-            if response == .alertSecondButtonReturn {
-                // Executar reset diretamente
-                timeTracker.resetAllData()
-                updateMenu()
-                
-                // Mostrar confirmação de sucesso
-                showResetSuccessAlert()
             }
         }
     }
@@ -399,23 +399,37 @@ class MenuBarController: ObservableObject {
     private func showResetSuccessAlert() {
         let successAlert = NSAlert()
         successAlert.messageText = "✅ Reset Concluído"
-        successAlert.informativeText = "Todos os dados foram apagados com sucesso. O modal será reaberto com as configurações padrão."
+        successAlert.informativeText = "Todos os dados foram apagados com sucesso! A aplicação será reiniciada para executar o assistente de configuração inicial."
         successAlert.alertStyle = .informational
-        successAlert.addButton(withTitle: "OK")
+        successAlert.addButton(withTitle: "OK - Reiniciar")
         
-        // Centralizar alert de sucesso
-        if let window = NSApplication.shared.mainWindow ?? NSApplication.shared.windows.first {
-            successAlert.beginSheetModal(for: window) { _ in
-                // Reabrir modal após pequeno delay
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    self.showConfigurationsModal()
-                }
-            }
-        } else {
-            successAlert.runModal()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                self.showConfigurationsModal()
-            }
+        // Usar runModal diretamente para centralizar na tela
+        successAlert.runModal()
+        
+        // Reiniciar a aplicação após pequeno delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.restartApplication()
+        }
+    }
+    
+    private func restartApplication() {
+        // Para aplicações Swift executadas via swift run, vamos reinicializar o estado interno
+        // Em vez de tentar reiniciar o processo (que é complexo em desenvolvimento)
+        
+        // Primeiro, reseta completamente o estado da aplicação
+        timer?.invalidate()
+        timer = nil
+        
+        // Remove todos os itens do menu
+        statusBarItem.menu?.removeAllItems()
+        
+        // Reinicializa completamente o controlador
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Recria o menu do zero
+            self.setupMenu()
+            
+            // Força o setup inicial a aparecer
+            self.showInitialSetupIfNeeded()
         }
     }
     
@@ -801,6 +815,10 @@ class MenuBarController: ObservableObject {
                 showConfigurationsModal() // Reabrir modal
             } else {
                 updateMenu()
+                
+                // Marcar que o usuário interveio/configurou algo após o reset
+                timeTracker.markInitialSetupCompleted()
+                
                 let successAlert = NSAlert()
                 successAlert.messageText = "✅ Configurações Salvas"
                 successAlert.informativeText = "Todas as configurações foram atualizadas com sucesso!"
