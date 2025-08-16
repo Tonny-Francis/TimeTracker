@@ -70,6 +70,7 @@ class MenuBarController: NSObject, ObservableObject {
             .sink { [weak self] in
                 DispatchQueue.main.async {
                     self?.updateStatusBarTitle()
+                    self?.updateMenu()
                 }
             }
             .store(in: &cancellables)
@@ -198,11 +199,36 @@ class MenuBarController: NSObject, ObservableObject {
                 startItem.target = self
                 menu.addItem(startItem)
             }
+
+            // Abater tempo restante da jornada das horas extras (visível sempre que houver saldo e tempo restante)
+            let todayStats = self.timeTracker.getTodayStats()
+            let tempoTrabalhadoHoje = todayStats.totalTime
+            let jornada = 6.0 * 3600.0
+            let tempoRestante = max(0, jornada - tempoTrabalhadoHoje)
+            let saldoExtras = self.timeTracker.getTotalOvertimeBalance()
+            let podeAbater = (tempoRestante > 0) && (saldoExtras >= tempoRestante) && self.timeTracker.isWorking && !self.timeTracker.hasAbatedToday()
+            let abaterItem = NSMenuItem(
+                title: "Abater tempo restante da jornada das horas extras",
+                action: podeAbater ? #selector(self.abaterTempoRestanteJornada) : nil,
+                keyEquivalent: ""
+            )
+            abaterItem.target = self
+            abaterItem.isEnabled = podeAbater
+            if tempoRestante == 0 {
+                abaterItem.toolTip = "Jornada já cumprida."
+            } else if saldoExtras < tempoRestante {
+                abaterItem.toolTip = "Saldo de horas extras insuficiente."
+            } else if !self.timeTracker.isWorking {
+                abaterItem.toolTip = "Só é possível abater durante uma jornada em andamento."
+            }
+            if saldoExtras > 0 {
+                menu.addItem(abaterItem)
+            }
             
             menu.addItem(NSMenuItem.separator())
+
             
             // Estatísticas do dia
-            let todayStats = self.timeTracker.getTodayStats()
             let todayItem = NSMenuItem()
             todayItem.title = "Hoje: \(self.formatDuration(todayStats.totalTime)) | Extras: \(self.formatDuration(todayStats.overtime))"
             todayItem.isEnabled = false
@@ -298,42 +324,21 @@ class MenuBarController: NSObject, ObservableObject {
     }
     
     @objc private func useOvertime() {
-        timeTracker.useOvertime(hours: 1)
-        updateMenu()
+    timeTracker.useOvertime(hours: 1)
+    updateMenu()
+        NSApplication.shared.terminate(nil)
     }
     
-    @objc private func importHistoricalData() {
+    // Importar dados históricos de horas extras
+    @objc func importHistoricalData() {
         timeTracker.importHistoricalOvertime()
-        
         let alert = NSAlert()
         alert.messageText = "Dados Importados!"
         alert.informativeText = "Suas horas extras históricas foram importadas com sucesso:\n\n• Dia 28/7: 7h18\n• Dia 02/8: 4h20\n• Dia NN: 6h\n• Dia 07/8: 1h3\n• Dia 09/8: 4h\n• Dia 11/8: 2h48\n\nTotal: ~25,5 horas extras adicionadas ao seu saldo."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         alert.runModal()
-        
         updateMenu()
-    }
-    
-    @objc private func resetData() {
-        let alert = NSAlert()
-        alert.messageText = "Reset Completo"
-        alert.informativeText = "Tem certeza que deseja apagar todos os dados? Esta ação não pode ser desfeita."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Reset")
-        alert.addButton(withTitle: "Cancelar")
-        
-        if alert.runModal() == .alertFirstButtonReturn {
-            timeTracker.resetAllData()
-            updateMenu()
-        }
-    }
-    
-    @objc private func quit() {
-        if timeTracker.isWorking {
-            timeTracker.stopWork()
-        }
-        NSApplication.shared.terminate(nil)
     }
     
     private func formatDuration(_ timeInterval: TimeInterval) -> String {
@@ -341,6 +346,67 @@ class MenuBarController: NSObject, ObservableObject {
         let minutes = Int(timeInterval) % 3600 / 60
         let seconds = Int(timeInterval) % 60
         return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+    }
+    
+    // Abater automaticamente o tempo restante da jornada das horas extras
+    @objc func abaterTempoRestanteJornada() {
+        // Tempo já trabalhado hoje
+        let todayStats = timeTracker.getTodayStats()
+        let tempoTrabalhadoHoje = todayStats.totalTime
+        let jornada = 6.0 * 3600.0
+        let tempoRestante = max(0, jornada - tempoTrabalhadoHoje)
+        let saldoExtras = timeTracker.getTotalOvertimeBalance()
+        if tempoRestante == 0 {
+            let alert = NSAlert()
+            alert.messageText = "Jornada já cumprida"
+            alert.informativeText = "Você já cumpriu sua jornada de trabalho de hoje."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+        if saldoExtras < tempoRestante {
+            let alert = NSAlert()
+            alert.messageText = "Saldo insuficiente"
+            alert.informativeText = "Você não possui horas extras suficientes para abater o tempo restante da jornada."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+    // Abater do saldo e encerrar jornada
+    timeTracker.useOvertime(hours: tempoRestante / 3600.0)
+    timeTracker.markAbatedToday(seconds: tempoRestante)
+    timeTracker.stopWork()
+    let alert = NSAlert()
+    alert.messageText = "Jornada encerrada com horas extras!"
+    alert.informativeText = String(format: "Foram abatidos %.2f horas extras para completar sua jornada de hoje.", tempoRestante / 3600.0)
+    alert.alertStyle = .informational
+    alert.addButton(withTitle: "OK")
+    alert.runModal()
+    updateMenu()
+    }
+    
+    // Sair do aplicativo
+    @objc func quit() {
+        if timeTracker.isWorking {
+            timeTracker.stopWork()
+        }
+        NSApplication.shared.terminate(nil)
+    }
+    
+    // Resetar todos os dados do aplicativo
+    @objc func resetData() {
+        let alert = NSAlert()
+        alert.messageText = "Reset Completo"
+        alert.informativeText = "Tem certeza que deseja apagar todos os dados? Esta ação não pode ser desfeita."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Reset")
+        alert.addButton(withTitle: "Cancelar")
+        if alert.runModal() == .alertFirstButtonReturn {
+            timeTracker.resetAllData()
+            updateMenu()
+        }
     }
     
     deinit {

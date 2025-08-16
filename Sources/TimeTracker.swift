@@ -16,6 +16,37 @@ struct OvertimeUsageData: Codable {
 }
 
 class TimeTracker: ObservableObject {
+    private let lastAbateKey = "lastAbateDate"
+        private let abateSecondsKey = "abateSecondsByDay"
+    // Salva segundos abatidos para o dia (yyyy-MM-dd)
+    private func saveAbateSeconds(_ seconds: TimeInterval, for date: Date) {
+        var dict = userDefaults.dictionary(forKey: abateSecondsKey) as? [String: Double] ?? [:]
+        let key = Self.dateKey(for: date)
+        dict[key] = (dict[key] ?? 0) + seconds
+        userDefaults.set(dict, forKey: abateSecondsKey)
+    }
+
+    // Recupera segundos abatidos para o dia (yyyy-MM-dd)
+    private func getAbateSeconds(for date: Date) -> TimeInterval {
+        let dict = userDefaults.dictionary(forKey: abateSecondsKey) as? [String: Double] ?? [:]
+        let key = Self.dateKey(for: date)
+        return dict[key] ?? 0
+    }
+
+    private static func dateKey(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+    // Verifica se já houve abatimento hoje
+    func hasAbatedToday() -> Bool {
+        return getAbateSeconds(for: Date()) > 0
+    }
+
+    // Marca que houve abatimento hoje, registrando quantos segundos foram abatidos
+    func markAbatedToday(seconds: TimeInterval) {
+        saveAbateSeconds(seconds, for: Date())
+    }
     static let shared = TimeTracker()
     
     @Published var isWorking = false
@@ -238,11 +269,20 @@ class TimeTracker: ObservableObject {
         }
         
         // Calcular horas extras baseado em dias úteis
-        let workDays = getWorkDaysInPeriod(start: start, end: end)
-        let expectedHours = TimeInterval(workDays) * standardWorkHours
-        let overtime = max(0, totalTime - expectedHours)
-        
-        return (totalTime, overtime)
+        // Calcular horas extras baseado em dias úteis, descontando abatimentos
+        let calendar = Calendar.current
+        var expectedHours: TimeInterval = 0
+        var currentDate = start
+        while currentDate < end {
+            let weekday = calendar.component(.weekday, from: currentDate)
+            if weekday >= 2 && weekday <= 6 { // Segunda a sexta
+                let abate = getAbateSeconds(for: currentDate)
+                expectedHours += max(0, standardWorkHours - abate)
+            }
+            currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
+        }
+    let overtime = max(0, totalTime - expectedHours)
+    return (totalTime, overtime)
     }
     
     private func getWorkDaysInPeriod(start: Date, end: Date) -> Int {
@@ -273,12 +313,14 @@ class TimeTracker: ObservableObject {
             }
         }
         
-        // Estimar dias de trabalho desde a primeira sessão
+        // Adicionar sessão atual se estiver ativa
+        if isWorking {
+            totalTime += currentSessionElapsed
+        }
+        
+        // Calcular horas extras considerando abatimentos desde a primeira sessão
         if let firstSession = sessions.first {
-            let workDays = getWorkDaysInPeriod(start: firstSession.startTime, end: Date())
-            let expectedHours = TimeInterval(workDays) * standardWorkHours
-            let overtime = max(0, totalTime - expectedHours)
-            return (totalTime, overtime)
+            return getStatsForPeriod(start: firstSession.startTime, end: Date())
         }
         
         return (totalTime, 0)
