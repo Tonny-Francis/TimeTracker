@@ -584,12 +584,12 @@ class MenuBarController: ObservableObject {
         containerView.addSubview(overtimeSeparator)
         
         // Campo de banco de horas
-        let overtimeLabel = NSTextField(labelWithString: "Saldo atual:")
+        let overtimeLabel = NSTextField(labelWithString: "Saldo inicial:")
         overtimeLabel.frame = NSRect(x: 30, y: 145, width: 100, height: 17)
         containerView.addSubview(overtimeLabel)
         
         let overtimeField = NSTextField(frame: NSRect(x: 140, y: 142, width: 80, height: 24))
-        let currentBalance = timeTracker.getTotalOvertimeBalance() / 3600.0
+        let currentBalance = timeTracker.getInitialOvertimeBalance()
         overtimeField.stringValue = hoursToHHMM(currentBalance)
         overtimeField.placeholderString = "00:00"
         overtimeField.alignment = .center

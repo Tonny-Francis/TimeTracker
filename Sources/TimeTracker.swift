@@ -122,8 +122,13 @@ class TimeTracker: ObservableObject {
     
     /// Define o saldo inicial de horas extras
     func setInitialOvertimeBalance(_ hours: Double) {
-        userDefaults.set(hours, forKey: "historicalOvertimeBalance")
+        userDefaults.set(hours, forKey: "initialOvertimeBalance")
         objectWillChange.send()
+    }
+    
+    /// Obtém o saldo inicial de horas extras configurado
+    func getInitialOvertimeBalance() -> Double {
+        return userDefaults.double(forKey: "initialOvertimeBalance")
     }
     
     private func setupUpdateTimer() {
