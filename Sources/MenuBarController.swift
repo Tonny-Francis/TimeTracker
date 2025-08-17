@@ -97,15 +97,15 @@ class MenuBarController: ObservableObject {
         
         // Atualizar estatísticas dinâmicas
         for item in menu.items {
-            if item.title.hasPrefix("Hoje:") {
+            if item.title.hasPrefix("📅 Hoje:") {
                 let todayStats = timeTracker.getTodayStats()
-                item.title = "Hoje: \(formatDuration(todayStats.totalTime)) | Extras: \(formatDuration(todayStats.overtime))"
-            } else if item.title.hasPrefix("Semana:") {
+                item.title = "📅 Hoje: \(formatDuration(todayStats.totalTime)) | Extras: \(formatDuration(todayStats.overtime))"
+            } else if item.title.hasPrefix("📊 Semana:") {
                 let weekStats = timeTracker.getWeekStats()
-                item.title = "Semana: \(formatDuration(weekStats.totalTime)) | Extras: \(formatDuration(weekStats.overtime))"
-            } else if item.title.hasPrefix("Mês:") {
+                item.title = "📊 Semana: \(formatDuration(weekStats.totalTime)) | Extras: \(formatDuration(weekStats.overtime))"
+            } else if item.title.hasPrefix("📈 Mês:") {
                 let monthStats = timeTracker.getMonthStats()
-                item.title = "Mês: \(formatDuration(monthStats.totalTime)) | Extras: \(formatDuration(monthStats.overtime))"
+                item.title = "📈 Mês: \(formatDuration(monthStats.totalTime)) | Extras: \(formatDuration(monthStats.overtime))"
             } else if item.title.contains("Saldo:") {
                 let balance = timeTracker.getTotalOvertimeBalance()
                 item.title = "💰 Saldo: \(formatDuration(balance))"
@@ -139,7 +139,7 @@ class MenuBarController: ObservableObject {
         if self.timeTracker.isWorking {
             if self.timeTracker.isPaused {
                 let resumeItem = NSMenuItem(
-                    title: "Retomar Trabalho",
+                    title: "▶️ Retomar Trabalho",
                     action: #selector(self.resumeWork),
                     keyEquivalent: ""
                 )
@@ -147,7 +147,7 @@ class MenuBarController: ObservableObject {
                 menu.addItem(resumeItem)
             } else {
                 let pauseItem = NSMenuItem(
-                    title: "Pausar Trabalho",
+                    title: "⏸️ Pausar Trabalho",
                     action: #selector(self.pauseWork),
                     keyEquivalent: ""
                 )
@@ -156,7 +156,7 @@ class MenuBarController: ObservableObject {
             }
             
             let stopItem = NSMenuItem(
-                title: "Parar Trabalho",
+                title: "⏹️ Parar Trabalho",
                 action: #selector(self.stopWork),
                 keyEquivalent: ""
             )
@@ -164,7 +164,7 @@ class MenuBarController: ObservableObject {
             menu.addItem(stopItem)
         } else {
             let startItem = NSMenuItem(
-                title: "Iniciar Trabalho",
+                title: "▶️ Iniciar Trabalho",
                 action: #selector(self.startWork),
                 keyEquivalent: ""
             )
@@ -180,7 +180,7 @@ class MenuBarController: ObservableObject {
         let saldoExtras = self.timeTracker.getTotalOvertimeBalance()
         let podeAbater = (tempoRestante > 0) && (saldoExtras >= tempoRestante) && self.timeTracker.isWorking && !self.timeTracker.hasAbatedToday()
         let abaterItem = NSMenuItem(
-            title: "Abater tempo restante da jornada das horas extras",
+            title: "⚡ Abater Horas Extras",
             action: podeAbater ? #selector(self.abaterTempoRestanteJornada) : nil,
             keyEquivalent: ""
         )
@@ -199,21 +199,21 @@ class MenuBarController: ObservableObject {
         
         // Estatísticas do dia
         let todayItem = NSMenuItem()
-        todayItem.title = "Hoje: \(self.formatDuration(todayStats.totalTime)) | Extras: \(self.formatDuration(todayStats.overtime))"
+        todayItem.title = "📅 Hoje: \(self.formatDuration(todayStats.totalTime)) | Extras: \(self.formatDuration(todayStats.overtime))"
         todayItem.isEnabled = false
         menu.addItem(todayItem)
         
         // Estatísticas da semana
         let weekStats = self.timeTracker.getWeekStats()
         let weekItem = NSMenuItem()
-        weekItem.title = "Semana: \(self.formatDuration(weekStats.totalTime)) | Extras: \(self.formatDuration(weekStats.overtime))"
+        weekItem.title = "📊 Semana: \(self.formatDuration(weekStats.totalTime)) | Extras: \(self.formatDuration(weekStats.overtime))"
         weekItem.isEnabled = false
         menu.addItem(weekItem)
         
         // Estatísticas do mês
         let monthStats = self.timeTracker.getMonthStats()
         let monthItem = NSMenuItem()
-        monthItem.title = "Mês: \(self.formatDuration(monthStats.totalTime)) | Extras: \(self.formatDuration(monthStats.overtime))"
+        monthItem.title = "📈 Mês: \(self.formatDuration(monthStats.totalTime)) | Extras: \(self.formatDuration(monthStats.overtime))"
         monthItem.isEnabled = false
         menu.addItem(monthItem)
         
@@ -235,7 +235,7 @@ class MenuBarController: ObservableObject {
         
         // Sair
         let quitItem = NSMenuItem(
-            title: "Sair",
+            title: "🚪 Sair",
             action: #selector(self.quit),
             keyEquivalent: "q"
         )
