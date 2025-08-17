@@ -217,24 +217,14 @@ class MenuBarController: ObservableObject {
         monthItem.isEnabled = false
         menu.addItem(monthItem)
         
-        menu.addItem(NSMenuItem.separator())
+        // Saldo de horas extras
+        let balance = self.timeTracker.getTotalOvertimeBalance()
+        let balanceItem = NSMenuItem()
+        balanceItem.title = "💰 Saldo: \(self.formatDuration(balance))"
+        balanceItem.isEnabled = false
+        menu.addItem(balanceItem)
         
-        // Usar horas extras
-        if self.timeTracker.getTotalOvertimeBalance() > 0 {
-            let useOvertimeItem = NSMenuItem(
-                title: "Usar 1h Extra (Saldo: \(self.formatDuration(self.timeTracker.getTotalOvertimeBalance())))",
-                action: #selector(self.useOvertime),
-                keyEquivalent: ""
-            )
-            useOvertimeItem.target = self
-            menu.addItem(useOvertimeItem)
-            
-            let balance = self.timeTracker.getTotalOvertimeBalance()
-            let balanceItem = NSMenuItem()
-            balanceItem.title = "💰 Saldo: \(self.formatDuration(balance))"
-            balanceItem.isEnabled = false
-            menu.addItem(balanceItem)
-        }
+        menu.addItem(NSMenuItem.separator())
         
         // Configurações
         let configMenuItem = NSMenuItem(title: "⚙️ Configurações", action: #selector(self.showConfigurationsModal), keyEquivalent: "")
